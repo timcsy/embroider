@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stitch-core",
+    "crates/stitch-formats",
+    "crates/stitch-geom",
+    "crates/stitch-gen",
+    "crates/stitch-text",
+    "crates/stitch-image",
+    "crates/stitch-wasm",
+    "crates/stitch-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+proptest = "1"
+kurbo = "0.13"
+ttf-parser = "0.25"
+i_overlay = "9"
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+stitch-core = { path = "crates/stitch-core" }
+stitch-formats = { path = "crates/stitch-formats" }
+stitch-geom = { path = "crates/stitch-geom" }
+stitch-gen = { path = "crates/stitch-gen" }
+stitch-text = { path = "crates/stitch-text" }
+stitch-image = { path = "crates/stitch-image" }
+
+[profile.release]
+opt-level = "s"
+lto = true

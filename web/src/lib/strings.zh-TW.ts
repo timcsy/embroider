@@ -1,0 +1,150 @@
+// 所有使用者看得到的文字。語氣像人說話，使用刺繡與拼布的慣用語。
+// 注意：檔案格式的名稱只會出現在「實機測試」與設定頁，由核心提供，不放在這裡。
+
+/** 一般畫面不該出現的技術術語（測試會檢查 strings 內的每個字串）。 */
+export const FORBIDDEN_TERMS = [
+  'quantization',
+  'wasm',
+  'pwa',
+  'json',
+  'tatami',
+  'satin',
+  'underlay',
+  'polygon',
+  'dst',
+  'exp',
+  'pes',
+  'jef',
+  '解析度',
+  '量化',
+  '向量',
+  '像素',
+]
+
+export const strings = {
+  appName: '刺繡小幫手',
+  loading: '準備中，請稍等一下…',
+  loadFailed: '打不開，請重新整理頁面再試一次。',
+
+  text: {
+    title: '想繡什麼字？',
+    placeholder: '在這裡打字，例如：王小明',
+    font: '字型',
+    size: '字的大小',
+    sizeUnit: '公分',
+    color: '線的顏色',
+    hoop: '用哪個框？',
+    preview: '繡出來的樣子',
+    actualSize: (w: string, h: string) => `實際大小約 ${w} × ${h} 公分`,
+    empty: '還沒有輸入文字，先打幾個字看看吧。',
+  },
+
+  tabs: {
+    text: '打字',
+    image: '選圖片',
+  },
+
+  image: {
+    title: '選一張圖',
+    choose: '從相簿選一張圖',
+    takePhoto: '拍照',
+    change: '換一張圖',
+    hint: '色塊分明的圖案（卡通、標誌）效果最好。',
+    empty: '還沒有選圖片，先選一張吧。',
+    loading: '正在看這張圖…',
+    colors: '顏色多寡',
+    colorsFew: '少一點',
+    colorsMany: '多一點',
+    simplify: '簡化程度',
+    simplifyLow: '保留細節',
+    simplifyHigh: '簡單一點',
+    size: '圖的大小',
+    sizeUnit: '公分',
+    colorsCount: (n: number) => `${n} 種顏色`,
+  },
+
+  updating: '正在更新…',
+
+  recent: {
+    title: '最近做過的',
+    kindText: '文字',
+    kindImage: '圖片',
+    restore: '拿來用',
+    remove: '刪掉',
+  },
+
+  fonts: {
+    sans: '黑體',
+    serif: '宋體',
+    round: '圓體',
+    kai: '楷體',
+  },
+
+  actions: {
+    undo: '上一步',
+    redo: '下一步',
+    saveToUsb: '存到 USB',
+    saveAll: '全部都存，我要試試看',
+    saving: '正在準備檔案…',
+    tryEntry: '機器打不開檔案？看這裡',
+  },
+
+  export: {
+    title: '檔案準備好了',
+    intro: '請把下面的檔案放進 USB 隨身碟，再插到縫紉機上。',
+    // 第一次還不知道機器讀得到哪一種，所以每種都存一份
+    firstTime: '這是第一次，我先把每一種都存起來。請拿去機器上試試，看哪一個讀得到。',
+    downloadHint: '檔案會存在手機的「下載」資料夾。手機可能會問你要不要允許下載多個檔案，請按「允許」。',
+    nameMap: '你的設計和檔名對照',
+    done: '好了',
+    share: '用分享傳到「檔案」App',
+    shareNote: '也可以直接用手機的分享功能，再選「檔案」App 存進 USB。',
+    tryNext: '去試試看哪一種讀得到',
+    currentDefault: (label: string) => `目前預設：${label}`,
+    defaultAll: '目前預設：每一種都存',
+  },
+
+  try: {
+    title: '試試看機器讀得到哪一種',
+    intro: '每台機器能讀的檔案不一樣。請照下面做一次，找到你的機器讀得到的那一種，以後就只存那一種。',
+    steps: [
+      '先回到上一頁，按「全部都存，我要試試看」，把檔案存下來。',
+      '用「檔案」App 把這些檔案放進 USB 隨身碟，再插到縫紉機上。',
+      '看看機器的畫面，哪些檔案打得開。打得開的就是機器讀得到的。',
+    ],
+    question: '哪一種機器打得開？',
+    formatLine: (label: string, desc: string) => `${label}：${desc}`,
+    choose: '這個機器讀得到，以後就用它',
+    chosen: '已經選這個了',
+    reset: '我還不確定，先每一種都存',
+    safety: '第一次真的要繡之前，請先用機器的「描繪範圍」功能走一圈，確定針不會打到框。',
+    back: '回去繼續做',
+  },
+
+  hoop: {
+    title: '我的框',
+    builtinTag: '原廠',
+    add: '新增我的框',
+    edit: '修改',
+    remove: '刪除這個框',
+    confirmRemove: '確定要刪除嗎？',
+    cancel: '取消',
+    save: '存起來',
+    formTitleNew: '新增一個框',
+    formTitleEdit: '修改這個框',
+    name: '框的名字',
+    namePlaceholder: '例如：10×10 方框',
+    width: '可以繡的寬（公釐）',
+    height: '可以繡的高（公釐）',
+    shape: '框的形狀',
+    shapes: { rect: '方形', circle: '圓形', ellipse: '橢圓' },
+    measureTitle: '要量哪裡？',
+    measureHint: '請量框裡面可以繡的範圍，不是框的外面。',
+    measureMore: '一般框的外圈會比可以繡的範圍大一點，量裡面比較準。',
+    sizeText: (w: string, h: string) => `${w}×${h} 公分`,
+  },
+
+  notices: {
+    blockedTitle: '這個先不能存喔',
+  },
+}

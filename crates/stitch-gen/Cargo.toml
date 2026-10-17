@@ -1,0 +1,13 @@
+[package]
+name = "stitch-gen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+stitch-geom.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

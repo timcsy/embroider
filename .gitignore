@@ -1,0 +1,12 @@
+target/
+out/
+web/node_modules/
+web/dist/
+web/src/lib/wasm/
+web/test-results/
+web/playwright-report/
+.claude/
+.DS_Store
+__pycache__/
+*.pyc
+web/public/fonts/

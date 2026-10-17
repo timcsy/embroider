@@ -1,0 +1,14 @@
+[package]
+name = "stitch-geom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+kurbo.workspace = true
+i_overlay.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 210" role="img" aria-label="量框裡面可以繡的範圍">
+  <rect x="20" y="15" width="280" height="160" rx="18" fill="#c9a36a" stroke="#8d6b3a" stroke-width="3"/>
+  <rect x="48" y="38" width="224" height="114" rx="8" fill="#f1eadb" stroke="#8d6b3a" stroke-width="2" stroke-dasharray="6 4"/>
+  <g stroke="#b3282d" stroke-width="2.5" fill="none" stroke-linecap="round">
+    <line x1="54" y1="95" x2="266" y2="95"/>
+    <polyline points="64,87 54,95 64,103"/>
+    <polyline points="256,87 266,95 256,103"/>
+    <line x1="160" y1="44" x2="160" y2="146"/>
+    <polyline points="152,54 160,44 168,54"/>
+    <polyline points="152,136 160,146 168,136"/>
+  </g>
+  <g font-family="'Noto Sans TC','PingFang TC',sans-serif" font-size="15" font-weight="700" fill="#b3282d" text-anchor="middle">
+    <rect x="106" y="80" width="108" height="22" rx="6" fill="#f1eadb"/>
+    <text x="160" y="96">量裡面的寬</text>
+    <rect x="166" y="112" width="86" height="22" rx="6" fill="#f1eadb"/>
+    <text x="209" y="128">量裡面的高</text>
+  </g>
+  <text x="160" y="200" font-family="'Noto Sans TC','PingFang TC',sans-serif" font-size="13" fill="#6b5b4b" text-anchor="middle">不要量外面的木框</text>
+</svg>

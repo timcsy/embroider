@@ -1,0 +1,15 @@
+[package]
+name = "stitch-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+stitch-formats.workspace = true
+stitch-gen.workspace = true
+stitch-text.workspace = true
+stitch-geom.workspace = true
+stitch-wasm = { path = "../stitch-wasm" }
+serde_json.workspace = true
+png = "0.17"

@@ -1,0 +1,11 @@
+[package]
+name = "stitch-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+stitch-geom.workspace = true
+stitch-gen.workspace = true
+serde.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "stitch-formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

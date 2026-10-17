@@ -176,24 +176,59 @@ pub fn quantize(rgba: &[u8], w: usize, h: usize, k: usize) -> Result<Quantized, 
     })
 }
 
-/// 依圖片內容建議顏色數：看有幾種顏色各占 2% 以上，限制在 2 到 8 之間。
+/// 每種顏色至少占多少比例才算數（低於這個的零星顏色多半是邊緣的過渡色）。
+const SUGGEST_MIN_SHARE: f64 = 0.003;
+/// 與已選顏色的色差小於這個值，就算同一種顏色（邊緣的漸層過渡色會落在這個範圍內）。
+const SUGGEST_DISTINCT: f64 = 22.0;
+
+/// 依圖片內容建議顏色數：由最常出現的顏色開始，依序找「跟已選的顏色明顯不同」的顏色，
+/// 找得到幾個就是幾色，限制在 2 到 8 之間。
+/// 不用面積門檻：卡通圖的深色輪廓線面積很小（常不到 2%），卻是圖案分明的關鍵。
 pub fn suggest_color_count(rgba: &[u8], w: usize, h: usize) -> usize {
     if check_size(rgba, w, h).is_err() {
         return MIN_COLORS;
     }
-    let mut bins: BTreeMap<[u8; 3], u32> = BTreeMap::new();
+    // 先把相近的顏色歸成一格再算：JPEG 圖的每個顏色都帶雜訊，同一個輪廓的像素會散成很多種
+    let mut hist: BTreeMap<Rgb, u32> = BTreeMap::new();
     let mut opaque = 0u32;
     for px in rgba.chunks_exact(4) {
         if px[3] >= OPAQUE_ALPHA {
-            *bins
-                .entry([px[0] >> 4, px[1] >> 4, px[2] >> 4])
+            let bin = |v: u8| (v & 0xF8) | 0x04;
+            *hist
+                .entry([bin(px[0]), bin(px[1]), bin(px[2])])
                 .or_insert(0) += 1;
             opaque += 1;
         }
     }
-    let significant = bins
-        .values()
-        .filter(|&&n| n as f64 >= opaque as f64 * 0.02)
-        .count();
-    significant.clamp(MIN_COLORS, 8)
+    let min_n = (opaque as f64 * SUGGEST_MIN_SHARE).max(1.0);
+    let colors: Vec<(Lab, f64)> = hist
+        .iter()
+        .filter(|(_, &n)| n as f64 >= min_n)
+        .map(|(&c, &n)| (lab(c), n as f64))
+        .collect();
+    let Some(first) = colors.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()) else {
+        return MIN_COLORS;
+    };
+    let mut chosen: Vec<Lab> = vec![first.0];
+    while chosen.len() < MAX_SUGGESTED {
+        // 離已選顏色最遠的那個；夠遠才算新的一色
+        let far = colors
+            .iter()
+            .map(|c| {
+                let d = chosen
+                    .iter()
+                    .map(|&x| delta(x, c.0))
+                    .fold(f64::MAX, f64::min);
+                (d, c.0)
+            })
+            .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        match far {
+            Some((d, c)) if d >= SUGGEST_DISTINCT => chosen.push(c),
+            _ => break,
+        }
+    }
+    // 多留一色：邊緣的過渡色會佔掉一群，不留的話最小的一色（常是輪廓線）會被併掉
+    (chosen.len() + 1).clamp(MIN_COLORS, MAX_SUGGESTED)
 }
+
+const MAX_SUGGESTED: usize = 8;

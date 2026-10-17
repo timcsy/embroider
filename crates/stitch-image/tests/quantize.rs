@@ -96,3 +96,44 @@ fn 建議的顏色數_簡單圖案偏少_在範圍內() {
     let flat = Img::filled(16, 16, RED);
     assert_eq!(suggest_color_count(&flat.rgba, flat.w, flat.h), 2);
 }
+
+#[test]
+fn 建議的顏色數_面積很小的深色輪廓線也算一色() {
+    // 白底、紅圓、外圈一條很細的黑邊（約占 1.2% 面積，低於「顯著」的 2%）：白、紅、黑三色缺一不可
+    let mut img = Img::filled(200, 200, WHITE);
+    img.disc(100.0, 100.0, 80.0, BLACK);
+    img.disc(100.0, 100.0, 79.0, RED);
+    let outline = 80.0f64.powi(2) - 79.0f64.powi(2);
+    assert!(outline / 40000.0 < 0.02, "測試圖的輪廓應該很小");
+    let k = suggest_color_count(&img.rgba, img.w, img.h);
+    assert!(k >= 3, "輪廓線被當成雜訊：k={k}");
+}
+
+#[test]
+fn 建議的顏色數_邊緣的漸層過渡色不算新的顏色() {
+    // 紅圓邊緣有一圈紅白之間的過渡色，不該因此多算
+    let mut img = Img::filled(200, 200, WHITE);
+    img.disc(100.0, 100.0, 80.0, [230, 140, 140]);
+    img.disc(100.0, 100.0, 78.0, RED);
+    let k = suggest_color_count(&img.rgba, img.w, img.h);
+    assert!(k <= 4, "過渡色多算了：k={k}");
+}
+
+#[test]
+fn 建議的顏色數_有雜訊的圖輪廓線仍然算一色() {
+    // 模擬 JPEG：每個像素的顏色都帶一點固定規律的雜訊，同一個輪廓散成很多種顏色
+    let mut img = Img::filled(200, 200, WHITE);
+    img.disc(100.0, 100.0, 80.0, BLACK);
+    img.disc(100.0, 100.0, 79.0, RED);
+    for y in 0..200 {
+        for x in 0..200 {
+            let i = (y * 200 + x) * 4;
+            let n = ((x * 7 + y * 13) % 9) as i32 - 4;
+            for c in 0..3 {
+                img.rgba[i + c] = (img.rgba[i + c] as i32 + n).clamp(0, 255) as u8;
+            }
+        }
+    }
+    let k = suggest_color_count(&img.rgba, img.w, img.h);
+    assert!(k >= 3, "雜訊讓輪廓線被當成零星顏色：k={k}");
+}

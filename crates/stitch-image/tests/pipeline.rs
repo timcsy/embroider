@@ -207,3 +207,87 @@ fn 沒有被阻止時一律在安全範圍內() {
         }
     }
 }
+
+/// 卡通圖常見的「深色細輪廓線」：比最小線寬還細，也要留下來（加粗到剛好繡得出來），
+/// 不能因為太細就整條消失，否則花瓣之間的分界會不見、全部糊成一團。
+#[test]
+fn 深色細輪廓線不會消失而是加粗() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.disc(100.0, 100.0, 80.0, BLACK);
+    img.disc(100.0, 100.0, 78.0, RED); // 輪廓寬 2 像素；圖 50mm 寬 → 0.5mm，比最小線寬 0.8mm 細
+    let r = build_image_preview(&request(&img, 3, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let dark = |c: &stitch_core::ThreadColor| (c.r as u32 + c.g as u32 + c.b as u32) < 200;
+    assert!(
+        r.plan.colors.iter().any(dark),
+        "輪廓線消失了：{:?}",
+        r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}
+
+/// 圖案邊緣會有一圈「接近白色的過渡色」，它不該被當成另一種線色繡出來（像給圖案鑲一圈米白邊）。
+#[test]
+fn 接近背景的過渡色併入背景不繡() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(70, 40, 130, 160, [225, 240, 225]); // 過渡色的外框
+    img.rect(75, 45, 125, 155, GREEN);
+    let r = build_image_preview(&request(&img, 3, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(
+        r.plan.colors.len(),
+        1,
+        "只該繡綠色：{:?}",
+        r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}
+
+/// 細的「淺色」過渡線只是邊緣的模糊，不是圖案的輪廓；只有深色細線才加粗保留。
+#[test]
+fn 淺色的細過渡線不會被加粗成一圈邊() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(70, 40, 130, 160, [170, 215, 170]); // 淺綠的 1 像素外框（夠淡，與綠色分成不同群）
+    img.rect(71, 41, 129, 159, GREEN);
+    let r = build_image_preview(&request(&img, 3, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(
+        r.plan.colors.len(),
+        1,
+        "只該繡綠色：{:?}",
+        r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}
+
+/// 同一個深色裡有粗的區塊也有細線時，細線不能因為旁邊有粗的部分就被去掉。
+#[test]
+fn 深色同時有粗塊與細線時細線仍然保留() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(20, 20, 60, 60, BLACK); // 粗塊（左上）
+    img.rect(100, 20, 102, 180, BLACK); // 細線：2 像素 = 0.5mm（圖 50mm 寬），在右側
+    let r = build_image_preview(&request(&img, 2, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let (min_x, max_x) = r
+        .plan
+        .stitches
+        .iter()
+        .fold((i32::MAX, i32::MIN), |a, s| (a.0.min(s.x), a.1.max(s.x)));
+    // 圖置中；細線在整張圖水平方向 50% 的位置，靠右半邊
+    let mid = (min_x + max_x) / 2;
+    assert!(
+        r.plan.stitches.iter().any(|s| s.x > mid + 40),
+        "細線不見了，針跡只剩左邊的粗塊：x 範圍 {min_x}..{max_x}"
+    );
+}
+
+/// 顏色數抓得比實際多時，同一個色塊不會被切成好幾個幾乎一樣的線色。
+#[test]
+fn 顏色數過多時近似的顏色合併() {
+    let img = logo(96); // 紅、藍、綠三個色塊加白底
+    let r = build_image_preview(&request(&img, 12, 30, 600.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(
+        r.plan.colors.len(),
+        3,
+        "{:?}",
+        r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}

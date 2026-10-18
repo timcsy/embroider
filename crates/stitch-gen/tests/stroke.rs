@@ -217,3 +217,78 @@ fn 窄的緞面只走中線底針_寬的多走兩側邊線底針() {
         }
     }
 }
+
+#[test]
+fn 緞面寬度大致一致的筆畫整條統一寬度() {
+    // 寬度在 ±8% 內抖動的長條（像素階梯造成的），整條應統一成同一個寬度，邊緣才整齊
+    let line: Vec<[f64; 3]> = (0..=100)
+        .map(|i| {
+            let jitter = [0.92, 1.0, 1.08][i % 3];
+            [i as f64 * 2.0, 0.0, 10.0 * jitter]
+        })
+        .collect();
+    let runs = satin(&line, 0.0);
+    let widths: Vec<f64> = runs[0]
+        .windows(2)
+        .map(|w| ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt())
+        .collect();
+    let (lo, hi) = (
+        widths.iter().cloned().fold(f64::MAX, f64::min),
+        widths.iter().cloned().fold(f64::MIN, f64::max),
+    );
+    assert!(hi - lo < 0.5, "寬度還在抖：{lo} ~ {hi}");
+}
+
+#[test]
+fn 緞面寬度變化很大的筆畫維持真實寬度() {
+    // 從 4 慢慢變到 16 的錐形：不能被抹平成同一個寬度
+    let line: Vec<[f64; 3]> = (0..=100)
+        .map(|i| [i as f64 * 2.0, 0.0, 4.0 + 12.0 * i as f64 / 100.0])
+        .collect();
+    let runs = satin(&line, 0.0);
+    let pts = &runs[0];
+    let first = (pts[1][1] - pts[0][1]).abs();
+    let last = (pts[pts.len() - 1][1] - pts[pts.len() - 2][1]).abs();
+    assert!(last > first * 2.0, "錐形被抹平了：{first} → {last}");
+}
+
+#[test]
+fn 急轉彎的內側針不越過曲率中心_且長短交替() {
+    // 半徑 12 的半圓，半寬 14（比轉彎半徑大）：內側的針若照放會越過圓心、互相交疊
+    let r = 12.0;
+    let line: Vec<[f64; 3]> = (0..=60)
+        .map(|i| {
+            let t = i as f64 / 60.0 * std::f64::consts::PI;
+            [r * t.cos(), r * t.sin(), 14.0]
+        })
+        .collect();
+    let pts = &satin(&line, 0.0)[0];
+    // 內側的針不能越過圓心：越過的話，相鄰的針線會互相交叉
+    let cross = |a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]| {
+        let o = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        o(a, b, c) * o(a, b, d) < 0.0 && o(c, d, a) * o(c, d, b) < 0.0
+    };
+    let mut crossings = 0;
+    for k in 0..pts.len() - 1 {
+        for m in k + 2..(k + 10).min(pts.len() - 1) {
+            if cross(pts[k], pts[k + 1], pts[m], pts[m + 1]) {
+                crossings += 1;
+            }
+        }
+    }
+    assert_eq!(crossings, 0, "內側的針線互相交叉 {crossings} 處");
+    let inner: Vec<f64> = pts
+        .iter()
+        .map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt())
+        .filter(|&d| d < r)
+        .collect();
+    assert!(!inner.is_empty(), "找不到內側的針");
+    // 長短交替：內側針的離心距離不全相同
+    let (lo, hi) = (
+        inner.iter().cloned().fold(f64::MAX, f64::min),
+        inner.iter().cloned().fold(f64::MIN, f64::max),
+    );
+    assert!(hi - lo > 1.0, "內側針沒有長短交替：{lo} ~ {hi}");
+}

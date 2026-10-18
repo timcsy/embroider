@@ -653,22 +653,71 @@ pub fn satin_underlay(line: &[[f64; 3]]) -> Vec<Run> {
     runs
 }
 
+/// 整條筆畫的寬度都在中位數的這個比例內，就統一成同一個寬度（邊緣才整齊）。
+/// 專利 US5740056 把緞面寬度分成固定級距，不跟著每個位置的真實寬度；這裡只在「本來就接近一致」
+/// （像素階梯造成的抖動）時才統一，錐形等真正變化的寬度仍保留。
+const UNIFORM_TOLERANCE: f64 = 0.15;
+/// 內側的針最多伸到曲率中心前的這個比例，免得越過圓心、互相交疊。
+const TIGHT_TURN: f64 = 0.9;
+/// 急轉彎內側「短針」佔長針的比例（長短交替，減少內側堆積）。
+const SHORT_STITCH: f64 = 0.6;
+
+fn heading(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (b[1] - a[1]).atan2(b[0] - a[0])
+}
+
 /// 緞面：沿中線每隔 `SATIN_STEP` 在左右兩側輪流下針，兩側各比筆畫多 `comp`（拉伸補償）。
+/// 寬度本來就一致的筆畫統一成同一個寬度；急轉彎的內側，針縮短並長短交替。
 pub fn satin(line: &[[f64; 3]], comp: f64) -> Vec<Run> {
-    let s = resample(line, SATIN_STEP);
+    let mut s = resample(line, SATIN_STEP);
     if s.len() < 2 {
         return Vec::new();
     }
     let n = s.len();
+    let mut widths: Vec<f64> = s.iter().map(|p| p[2]).collect();
+    widths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = widths[n / 2];
+    if s.iter()
+        .all(|p| (p[2] - median).abs() <= UNIFORM_TOLERANCE * median)
+    {
+        for p in &mut s {
+            p[2] = median;
+        }
+    }
     let mut run: Run = Vec::with_capacity(n);
+    let mut inner_count = 0usize;
     for (i, p) in s.iter().enumerate() {
         let (a, b) = (s[i.saturating_sub(2)], s[(i + 2).min(n - 1)]);
         let (tx, ty) = (b[0] - a[0], b[1] - a[1]);
         let len = (tx * tx + ty * ty).sqrt().max(1e-9);
         let (nx, ny) = (-ty / len, tx / len);
         let side = if i % 2 == 0 { 1.0 } else { -1.0 };
-        let r = p[2] + comp;
+        let mut r = p[2] + comp;
+        // 曲率（左轉為正）：弦長尺度上的轉角 ÷ 弧長；兩端沒有足夠的鄰點，沿用最近一處的曲率
+        if n >= 5 {
+            let c = i.clamp(2, n - 3);
+            let (h1, h2) = (heading(s[c - 2], s[c]), heading(s[c], s[c + 2]));
+            let turn = (h2 - h1 + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+                - std::f64::consts::PI;
+            let arc = (dist(s[c - 2], s[c]) + dist(s[c], s[c + 2])) / 2.0;
+            let k = if arc > 1e-9 { turn / arc } else { 0.0 };
+            // 轉彎中心在左邊（k>0）時，左邊（side=+1）是內側
+            if side * k > 0.0 {
+                let limit = TIGHT_TURN / k.abs();
+                if r > limit {
+                    r = limit;
+                    inner_count += 1;
+                    if inner_count.is_multiple_of(2) {
+                        r *= SHORT_STITCH;
+                    }
+                }
+            }
+        }
         run.push([p[0] + nx * r * side, p[1] + ny * r * side]);
     }
     vec![run]
+}
+
+fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
+    ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt()
 }

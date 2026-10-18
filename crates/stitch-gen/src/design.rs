@@ -7,7 +7,7 @@ use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use crate::outline::outline;
 use crate::stroke::{
-    center_run, mean_width, plan_stroke, principal_angle, run_stitch, satin, StrokeKind,
+    mean_width, plan_stroke, principal_angle, run_stitch, satin, satin_underlay, StrokeKind,
 };
 use crate::travel::{assemble, group_by_color, ColorBlock, TravelParams};
 use crate::underlay::underlay;
@@ -282,7 +282,7 @@ pub fn build_plan_with_blends(
                     if kind == StrokeKind::Run {
                         runs.extend(run_stitch(line, 25.0));
                     } else {
-                        runs.push(center_run(line, 25.0));
+                        runs.extend(satin_underlay(line));
                         runs.extend(satin(line, s.pull_comp.max(0.0)));
                     }
                 }

@@ -190,3 +190,30 @@ fn 胖的星形花朵不當成筆畫_細長筆畫才是() {
     // 太短的線不是筆畫
     assert!(plan_stroke(&rect(0.0, 0.0, 30.0, 6.0)).is_none());
 }
+
+#[test]
+fn 窄的緞面只走中線底針_寬的多走兩側邊線底針() {
+    use stitch_gen::stroke::satin_underlay;
+    let narrow = &centerlines(&rect(0.0, 0.0, 200.0, 14.0))[0]; // 1.4mm
+    let wide = &centerlines(&rect(0.0, 0.0, 200.0, 30.0))[0]; // 3mm
+    assert_eq!(satin_underlay(narrow).len(), 1, "窄的只要中線");
+    let runs = satin_underlay(wide);
+    assert_eq!(runs.len(), 3, "寬的要中線加兩側邊線");
+    // 兩條邊線在筆畫內、離邊約一點點，且分居中線兩側
+    let ys: Vec<f64> = runs
+        .iter()
+        .map(|r| r.iter().map(|p| p[1]).sum::<f64>() / r.len() as f64)
+        .collect();
+    let (lo, hi) = (
+        ys.iter().cloned().fold(f64::MAX, f64::min),
+        ys.iter().cloned().fold(f64::MIN, f64::max),
+    );
+    assert!(lo > 0.0 && hi < 30.0, "邊線要在筆畫內：{lo} {hi}");
+    assert!(hi - lo > 15.0, "兩條邊線要分開在兩側：{lo} {hi}");
+    for r in &runs {
+        for w in r.windows(2) {
+            let d = ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt();
+            assert!(d <= 25.0 + 1e-6, "底針針距 {d}");
+        }
+    }
+}

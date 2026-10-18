@@ -621,6 +621,38 @@ pub fn run_stitch(line: &[[f64; 3]], spacing: f64) -> Vec<Run> {
     vec![run]
 }
 
+/// 寬度從這個值起，緞面的底針除了中線還要加兩側邊線（2mm）。
+/// 專利 US20140366790：0 到 2mm 的柱用中線底針；更寬的加邊線（5 到 9mm 再加之字）。
+pub const EDGE_UNDERLAY_MIN_WIDTH: f64 = 20.0;
+/// 邊線底針離筆畫邊緣的距離（0.3mm）。
+const EDGE_UNDERLAY_INSET: f64 = 3.0;
+
+/// 緞面的底針：窄的只走中線；夠寬的再加左右各一條邊線（支撐緞面的邊緣，面針才不會陷進布裡）。
+/// 寬度取第 70 百分位（專利的做法，寧可多給支撐）。
+pub fn satin_underlay(line: &[[f64; 3]]) -> Vec<Run> {
+    let mut runs = vec![center_run(line, 25.0)];
+    let mut widths: Vec<f64> = line.iter().map(|p| 2.0 * p[2]).collect();
+    widths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let w70 = widths[((widths.len() - 1) as f64 * 0.7) as usize];
+    if w70 >= EDGE_UNDERLAY_MIN_WIDTH {
+        for side in [1.0, -1.0] {
+            let s = resample(line, 25.0);
+            let n = s.len();
+            let edge: Run = (0..n)
+                .map(|i| {
+                    let (a, b) = (s[i.saturating_sub(1)], s[(i + 1).min(n - 1)]);
+                    let (tx, ty) = (b[0] - a[0], b[1] - a[1]);
+                    let len = (tx * tx + ty * ty).sqrt().max(1e-9);
+                    let r = (s[i][2] - EDGE_UNDERLAY_INSET).max(0.0) * side;
+                    [s[i][0] - ty / len * r, s[i][1] + tx / len * r]
+                })
+                .collect();
+            runs.push(edge);
+        }
+    }
+    runs
+}
+
 /// 緞面：沿中線每隔 `SATIN_STEP` 在左右兩側輪流下針，兩側各比筆畫多 `comp`（拉伸補償）。
 pub fn satin(line: &[[f64; 3]], comp: f64) -> Vec<Run> {
     let s = resample(line, SATIN_STEP);

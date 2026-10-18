@@ -1,6 +1,7 @@
 use crate::color::{delta, lab, Lab, Rgb};
 use crate::quantize::quantize;
-use crate::trace::{label_polygon, majority_filter};
+use crate::smooth::edge_preserving_smooth;
+use crate::trace::{label_polygon, majority_filter, remove_small_regions};
 use serde::{Deserialize, Serialize};
 use stitch_core::hoop::Hoop;
 use stitch_core::palette::threads;
@@ -220,6 +221,8 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         return blocked("bad_image", "這張圖打不開。", "請換一張圖，或重新選一次。");
     }
 
+    // 先保邊平滑：同一個色塊的顏色變一致，分群出來的區域才大而完整，不會碎成一堆小點
+    let rgba = edge_preserving_smooth(&rgba, w, h, 20 + (simplify * 0.6) as u32);
     let q = match quantize(&rgba, w, h, req.color_count) {
         Ok(q) => q,
         Err(m) => return PreviewResult::blocked(m),
@@ -275,6 +278,10 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     }
 
     majority_filter(&mut labels, w, h, 1 + (simplify / 40.0) as usize);
+    // 比最小筆畫還小的零碎色塊併入周圍（以實際大小換算成像素數）
+    let px_len =
+        req.settings.min_stroke_width * (1.0 + simplify / 50.0) / (req.size / w.max(h) as f64);
+    remove_small_regions(&mut labels, w, h, (px_len * px_len).round() as usize);
 
     // 逐色轉成多邊形，換成實際大小（0.1mm），再依簡化程度平滑、合併過細的部分
     let scale = req.size / w.max(h) as f64;

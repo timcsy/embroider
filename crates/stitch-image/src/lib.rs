@@ -3,6 +3,7 @@
 pub mod color;
 mod pipeline;
 pub mod quantize;
+pub mod smooth;
 pub mod trace;
 
 pub use pipeline::{build_image_preview, ImageRequest};

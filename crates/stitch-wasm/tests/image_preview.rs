@@ -47,9 +47,18 @@ fn 建議的顏色數在範圍內() {
 }
 
 #[test]
-fn 色票有十六色且都有中文色名() {
+fn 色票都有中文色名且最初的十六色順序不變() {
     let t = api::list_thread_colors();
-    assert_eq!(t.len(), 16);
+    // 存好的設計是用編號記顏色，新增的色只能加在後面
+    assert_eq!(t.len(), 23);
+    let first: Vec<&str> = t.iter().take(16).map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        first,
+        [
+            "正紅", "粉紅", "橘色", "鵝黃", "金黃", "草綠", "墨綠", "天藍", "寶藍", "深藍", "紫色",
+            "酒紅", "咖啡", "灰色", "米白", "黑色"
+        ]
+    );
     assert!(t.iter().all(|c| c
         .name
         .chars()

@@ -1,4 +1,4 @@
-use crate::color::{delta, lab, Rgb};
+use crate::color::{delta, lab, Lab, Rgb};
 use crate::quantize::quantize;
 use crate::trace::{label_polygon, majority_filter};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ const NEAR_BACKGROUND: f64 = 20.0;
 /// 亮度（Lab 的 L）低於這個值才算深色線。
 /// 兩個顏色的色差小於這個值就合併成一個。
 const MERGE_DELTA: f64 = 12.0;
+/// 配色時亮度差的權重（色相與飽和度的差是 1）。
+const LIGHTNESS_WEIGHT: f64 = 0.25;
 const DARK_LINE_L: f64 = 50.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -142,13 +144,68 @@ fn merge_close(labels: &mut [i16], centers: &[Rgb]) -> Vec<Rgb> {
     out
 }
 
+/// 配到同一種線色的群併成一群（中心取加權平均）。同一種線不要分成好幾次各繡一遍。
+fn merge_same_thread(labels: &mut [i16], centers: &[Rgb], palette: &[ThreadColor]) -> Vec<Rgb> {
+    let mut count = vec![0.0f64; centers.len()];
+    for &l in labels.iter().filter(|l| **l >= 0) {
+        count[l as usize] += 1.0;
+    }
+    let names: Vec<&str> = centers
+        .iter()
+        .map(|&c| {
+            let t = nearest_thread(c, palette);
+            palette
+                .iter()
+                .find(|p| p.name == t.name)
+                .unwrap()
+                .name
+                .as_str()
+        })
+        .collect();
+    let mut order: Vec<&str> = Vec::new();
+    let mut new_index = vec![0i16; centers.len()];
+    for (i, n) in names.iter().enumerate() {
+        let at = order.iter().position(|o| o == n).unwrap_or_else(|| {
+            order.push(n);
+            order.len() - 1
+        });
+        new_index[i] = at as i16;
+    }
+    let mut sum = vec![[0.0f64; 3]; order.len()];
+    let mut weight = vec![0.0f64; order.len()];
+    for (i, &c) in centers.iter().enumerate() {
+        let g = new_index[i] as usize;
+        let w = count[i].max(1e-9);
+        weight[g] += w;
+        for k in 0..3 {
+            sum[g][k] += c[k] as f64 * w;
+        }
+    }
+    for l in labels.iter_mut().filter(|l| **l >= 0) {
+        *l = new_index[*l as usize];
+    }
+    (0..order.len())
+        .map(|g| {
+            let m = |k: usize| (sum[g][k] / weight[g]).round() as u8;
+            [m(0), m(1), m(2)]
+        })
+        .collect()
+}
+
+/// 配色的距離：色相與飽和度為重、亮度為輕。
+/// 色票只有二十種，亮度差一點的棕色若以亮度為重，會被配成沒有顏色的灰。
+fn thread_distance(a: Lab, b: Lab) -> f64 {
+    let (dl, da, db) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    (LIGHTNESS_WEIGHT * dl * dl + da * da + db * db).sqrt()
+}
+
 fn nearest_thread(c: Rgb, palette: &[ThreadColor]) -> ThreadColor {
     let l = lab(c);
     palette
         .iter()
         .min_by(|a, b| {
-            delta(l, lab([a.r, a.g, a.b]))
-                .partial_cmp(&delta(l, lab([b.r, b.g, b.b])))
+            thread_distance(l, lab([a.r, a.g, a.b]))
+                .partial_cmp(&thread_distance(l, lab([b.r, b.g, b.b])))
                 .unwrap()
         })
         .unwrap()
@@ -169,6 +226,8 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     };
     let mut labels = q.labels.clone();
     let centers = merge_close(&mut labels, &q.centers);
+    let palette = threads();
+    let centers = merge_same_thread(&mut labels, &centers, &palette);
 
     // 背景：圖片邊緣最多的那個顏色（例如白底）不繡
     let mut border: Vec<(i16, usize)> = Vec::new();
@@ -222,7 +281,6 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     // 平滑半徑以「一個像素有多大」為準：磨掉像素階梯，又不會把細節整個吃掉
     let smooth_r = scale * (1.0 + simplify / 100.0);
     let min_feature = req.settings.min_stroke_width * (1.0 + simplify / 50.0);
-    let palette = threads();
     let mut shapes: Vec<(f64, ColoredShape)> = Vec::new();
     let mut area_px = 0.0;
     for (label, &center) in centers.iter().enumerate() {

@@ -291,3 +291,54 @@ fn 顏色數過多時近似的顏色合併() {
         r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
     );
 }
+
+/// 色票只有 16 種時，中間亮度的棕色不能被配成灰色：配色要以「色相」為重，亮度為輕。
+#[test]
+fn 中間亮度的棕色配成咖啡色系而不是灰色() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(40, 40, 160, 160, [150, 100, 85]);
+    let r = build_image_preview(&request(&img, 2, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(r.plan.colors.len(), 1);
+    assert!(
+        ["咖啡", "豆沙", "膚色", "杏色", "駝色"]
+            .iter()
+            .any(|n| r.plan.colors[0].name.contains(n)),
+        "配成了「{}」",
+        r.plan.colors[0].name
+    );
+}
+
+/// 同一種線色不要分成好幾群各繡一次（換色、剪線都會變多）。
+#[test]
+fn 配到同一種線色的群合併成一次() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(30, 30, 100, 170, [60, 140, 50]); // 深一點的綠
+    img.rect(100, 30, 170, 170, [95, 180, 75]); // 淺一點的綠，兩者配到同一種草綠
+    let r = build_image_preview(&request(&img, 3, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(
+        r.plan.colors.len(),
+        1,
+        "{:?}",
+        r.plan.colors.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}
+
+/// 真實的照片（巧克力蛋糕，白底）：只有咖啡色系的深淺與奶油的白，
+/// 配出來的線色不該有灰色或黑色大塊，也不該一堆顏色。
+#[test]
+fn 巧克力蛋糕照片配色是咖啡色系不出現灰色() {
+    let rgba = std::fs::read("tests/fixtures/cake-160.rgba").unwrap();
+    let img = Img {
+        w: 160,
+        h: 160,
+        rgba,
+    };
+    let k = stitch_image::quantize::suggest_color_count(&img.rgba, img.w, img.h);
+    let r = build_image_preview(&request(&img, k, 50, 1000.0, "b70-large"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let names: Vec<&str> = r.plan.colors.iter().map(|c| c.name.as_str()).collect();
+    assert!(!names.contains(&"灰色"), "k={k} 出現灰色：{names:?}");
+    assert!(names.len() <= 5, "顏色太多：{names:?}");
+}

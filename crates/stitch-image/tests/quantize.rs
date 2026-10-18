@@ -137,3 +137,21 @@ fn 建議的顏色數_有雜訊的圖輪廓線仍然算一色() {
     let k = suggest_color_count(&img.rgba, img.w, img.h);
     assert!(k >= 3, "雜訊讓輪廓線被當成零星顏色：k={k}");
 }
+
+#[test]
+fn 建議的顏色數_照片這種漸層很多的圖不給太多色() {
+    // 平滑的紅藍漸層：顏色連續變化，沒有「幾個明顯不同的色塊」
+    let mut img = Img::filled(200, 200, WHITE);
+    for y in 0..200 {
+        for x in 0..200 {
+            let c = [
+                (x * 255 / 199) as u8,
+                (y * 255 / 199) as u8,
+                ((x + y) * 255 / 398) as u8,
+            ];
+            img.set(x, y, c, 255);
+        }
+    }
+    let k = suggest_color_count(&img.rgba, img.w, img.h);
+    assert!(k <= 4, "漸層圖建議了 {k} 色，繡出來會是一堆色塊");
+}

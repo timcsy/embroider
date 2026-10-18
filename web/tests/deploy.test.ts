@@ -30,3 +30,15 @@ describe('頁面基本資訊', () => {
     expect(html).toMatch(/<title>刺繡小幫手<\/title>/)
   })
 })
+
+// 新版本出來時，不能在使用者操作到一半時自己重新整理：
+// 正在選圖、打字的內容都在畫面的記憶體裡，重新整理會全部消失、畫面跳回打字。
+describe('更新不打斷使用', () => {
+  it('不使用「自動更新」（它會在新版啟用時強制重新整理）', () => {
+    expect(config).not.toMatch(/registerType:\s*'autoUpdate'/)
+  })
+  it('新版等到下次重新開啟才接手，不搶著接管正在用的頁面', () => {
+    expect(config).not.toMatch(/skipWaiting:\s*true/)
+    expect(config).not.toMatch(/clientsClaim:\s*true/)
+  })
+})

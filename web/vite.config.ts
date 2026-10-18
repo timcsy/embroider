@@ -10,7 +10,9 @@ export default defineConfig({
     svelte(),
     // 離線與「加到主畫面」：把程式、WASM、字型都預先快取，之後沒有網路也能用
     VitePWA({
-      registerType: 'autoUpdate',
+      // 不用 autoUpdate：它會在新版啟用時強制重新整理，使用者正在做的設計（選好的圖、打的字）會全部消失。
+      // 新版會等到使用者下次重新打開才接手。
+      registerType: 'prompt',
       injectRegister: false,
       manifest: {
         name: '刺繡小幫手',
@@ -32,8 +34,6 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,wasm,svg,png,ttf,webmanifest}'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        clientsClaim: true,
-        skipWaiting: true,
         navigateFallback: 'index.html',
       },
     }),

@@ -120,14 +120,35 @@ fn 顏色漸層很多的照片會提示效果有限但仍可繼續() {
 }
 
 #[test]
-fn 太細的線條被合併並說明() {
+fn 太細的線條改走單線平針而不是消失() {
     let mut img = logo(96);
-    // 幾條 1 像素寬的黑線橫過、縱過整張圖
+    // 幾條 1 像素寬的黑線橫過、縱過整張圖（約 0.6mm，比最小筆畫還細）
     img.rect(0, 50, 96, 51, BLACK);
     img.rect(0, 56, 96, 57, BLACK);
     img.rect(20, 0, 21, 96, BLACK);
     let r = build_image_preview(&request(&img, 5, 30, 600.0, "b70-medium"));
     assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert!(
+        r.plan.colors.iter().any(|c| c.name == "黑色"),
+        "細黑線不見了：{:?}",
+        r.plan.colors
+    );
+}
+
+#[test]
+fn 零碎物件被去掉時說明有簡化() {
+    let mut img = Img::filled(256, 256, WHITE);
+    img.rect(100, 100, 156, 156, RED);
+    for gy in 0..9 {
+        for gx in 0..9 {
+            let (x, y) = (10 + gx * 26, 10 + gy * 26);
+            if (90..170).contains(&x) && (90..170).contains(&y) {
+                continue;
+            }
+            img.rect(x, y, x + 12, y + 12, BLUE);
+        }
+    }
+    let r = build_image_preview(&request(&img, 3, 30, 1200.0, "b70-large"));
     assert!(
         r.adjustments.iter().any(|m| m.code == "simplified"),
         "{:?}",
@@ -467,4 +488,44 @@ fn 一堆零碎小點會限制物件總數() {
     assert!(trims <= 50, "留下太多零碎物件：剪線 {trims} 次");
     // 主體不能被當成零碎去掉
     assert!(r.plan.colors.iter().any(|c| c.name == "正紅"));
+}
+
+/// 色票裡沒有的顏色（例如介於紫色與粉紅之間的洋紅），用兩種線交錯繡出中間色，而不是硬配成差很多的單色。
+#[test]
+fn 色票沒有的洋紅用兩色交錯混出來() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(40, 40, 160, 160, [185, 110, 165]);
+    let r = build_image_preview(&request(&img, 2, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let mut names: Vec<&str> = r.plan.colors.iter().map(|c| c.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(
+        names.contains(&"紫色") || names.contains(&"粉紅"),
+        "{names:?}"
+    );
+}
+
+/// 色票裡本來就有接近的顏色時，不要混色（混色會多換一次線）。
+#[test]
+fn 色票有接近的顏色就不混色() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(40, 40, 160, 160, [200, 30, 40]);
+    let r = build_image_preview(&request(&img, 2, 30, 500.0, "b70-medium"));
+    assert_eq!(r.plan.colors.len(), 1, "{:?}", r.plan.colors);
+}
+
+/// 有很細的線的圖放不進框時，要縮小；細線改走單線平針，不該因為「縮小後線更細」就被擋下。
+#[test]
+fn 有細線的圖放不進框時縮小而不是被擋下() {
+    let mut img = logo(200);
+    img.rect(0, 100, 200, 101, BLACK); // 1 像素的細線：500 單位寬時只有 0.25mm
+    img.rect(80, 0, 81, 200, BLACK);
+    let r = build_image_preview(&request(&img, 4, 30, 700.0, "b70-small"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert!(
+        r.adjustments.iter().any(|m| m.code == "shrunk"),
+        "{:?}",
+        r.adjustments
+    );
 }

@@ -12,6 +12,8 @@ pub struct FillParams {
     pub min_stitch: f64,
     /// 填充方向（度）
     pub angle_deg: f64,
+    /// 第一列往下錯開多少（預設 0）。兩色交錯混色時，第二色錯開一個行距，兩色的列才會交錯。
+    pub y_offset: f64,
 }
 
 impl Default for FillParams {
@@ -21,6 +23,7 @@ impl Default for FillParams {
             max_stitch: 30.0,
             min_stitch: 5.0,
             angle_deg: 45.0,
+            y_offset: 0.0,
         }
     }
 }
@@ -113,31 +116,63 @@ fn build_strips(rows: &[(usize, Vec<(f64, f64)>)]) -> Vec<Strip> {
     strips
 }
 
-/// 產生填充針跡。每列的格點錯開三分之一針長；同一條內蛇行往返。
-pub fn fill(poly: &Polygon, p: &FillParams) -> Vec<Run> {
-    let rotated = rotate_poly(&poly.normalized(), -p.angle_deg);
-    let Some((min, max)) = rotated.bounds() else {
-        return Vec::new();
-    };
-    let mut rows: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+/// 把（已轉成水平掃描的）多邊形切成各列的區段。
+/// (列號, 該列的區段)
+type Rows = Vec<(usize, Vec<(f64, f64)>)>;
+
+fn scan_rows(rotated: &Polygon, row_spacing: f64, y_offset: f64) -> Option<(Rows, [f64; 2])> {
+    let (min, max) = rotated.bounds()?;
+    let mut rows: Rows = Vec::new();
     let mut k = 0usize;
     loop {
-        let y = min[1] + p.row_spacing * (k as f64 + 0.5);
+        let y = min[1] + y_offset + row_spacing * (k as f64 + 0.5);
         if y >= max[1] {
             break;
         }
-        let spans: Vec<_> = spans_at(&rotated, y)
+        let spans: Vec<_> = spans_at(rotated, y)
             .into_iter()
             .filter(|(a, b)| b - a >= 1.0)
             .collect();
         rows.push((k, spans));
         k += 1;
     }
+    Some((rows, min))
+}
+
+/// 以某個角度鋪針時，會斷成幾條「一筆畫」（碎片）。碎片越少，剪線、跳針越少，針跡也越順。
+pub fn fragment_count(poly: &Polygon, angle_deg: f64, row_spacing: f64) -> usize {
+    let rotated = rotate_poly(&poly.normalized(), -angle_deg);
+    scan_rows(&rotated, row_spacing, 0.0).map_or(0, |(rows, _)| build_strips(&rows).len())
+}
+
+/// 候選角度的個數（0 到 180 度均分）。
+const ANGLE_CANDIDATES: usize = 16;
+
+/// 在 16 個候選角度中挑碎片最少的；一樣少時取最接近 `prefer`（度）的。
+/// 做法來自「由掃描影像自動產生刺繡」的專利（US7016756 家族）：試多個掃描角度，取碎片最少者。
+pub fn best_fill_angle(poly: &Polygon, row_spacing: f64, prefer: f64) -> f64 {
+    let gap = |a: f64| {
+        let d = (a - prefer).rem_euclid(180.0);
+        d.min(180.0 - d)
+    };
+    (0..ANGLE_CANDIDATES)
+        .map(|i| i as f64 * 180.0 / ANGLE_CANDIDATES as f64)
+        .map(|a| (fragment_count(poly, a, row_spacing), a))
+        .min_by(|x, y| x.0.cmp(&y.0).then(gap(x.1).partial_cmp(&gap(y.1)).unwrap()))
+        .map_or(prefer, |(_, a)| a)
+}
+
+/// 產生填充針跡。每列的格點錯開三分之一針長；同一條內蛇行往返。
+pub fn fill(poly: &Polygon, p: &FillParams) -> Vec<Run> {
+    let rotated = rotate_poly(&poly.normalized(), -p.angle_deg);
+    let Some((rows, min)) = scan_rows(&rotated, p.row_spacing, p.y_offset) else {
+        return Vec::new();
+    };
 
     let mut runs = Vec::new();
     for strip in build_strips(&rows) {
         for (j, (k, (x0, x1))) in strip.rows.iter().enumerate() {
-            let y = min[1] + p.row_spacing * (*k as f64 + 0.5);
+            let y = min[1] + p.y_offset + p.row_spacing * (*k as f64 + 0.5);
             let offset = (k % 3) as f64 * p.max_stitch / 3.0;
             let mut xs = row_points(*x0, *x1, offset, p);
             if j % 2 == 1 {

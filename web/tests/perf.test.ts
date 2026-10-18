@@ -97,7 +97,7 @@ describe('效能預算', () => {
         for (let c = 0; c < 4; c++) rgba[(y * sw * 2 + x) * 4 + c] = small[((y >> 1) * sw + (x >> 1)) * 4 + c]
     const req = { width: sw * 2, height: sh * 2, color_count: 9, simplify: 30, size: 1400, hoop: hoop() }
     const [r, ms] = time(() => buildImagePreview(req, rgba))
-    console.log('512 插畫轉換耗時 ms', Math.round(ms))
+    console.log('512 插畫轉換耗時 ms', Math.round(ms), JSON.stringify(r.blocked))
     expect(r.blocked).toBeNull()
     expect(ms).toBeLessThan(IMAGE_BUDGET_MS * 2)
   })

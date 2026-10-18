@@ -217,3 +217,44 @@ fn 分條後每個區段仍然只出現一次() {
         "total={total} expected={expected}"
     );
 }
+
+fn comb() -> Polygon {
+    // 底部的橫梁加上三根向上的齒：順著齒的方向（垂直）鋪針，整塊可以一氣呵成；橫著鋪則斷成三條
+    Polygon::new(vec![vec![
+        [0.0, 0.0],
+        [200.0, 0.0],
+        [200.0, 200.0],
+        [160.0, 200.0],
+        [160.0, 40.0],
+        [120.0, 40.0],
+        [120.0, 200.0],
+        [80.0, 200.0],
+        [80.0, 40.0],
+        [40.0, 40.0],
+        [40.0, 200.0],
+        [0.0, 200.0],
+    ]])
+}
+
+#[test]
+fn 碎片數_順著齒鋪比橫著鋪少() {
+    use stitch_gen::fill::fragment_count;
+    let horizontal = fragment_count(&comb(), 0.0, 4.0);
+    let vertical = fragment_count(&comb(), 90.0, 4.0);
+    assert!(vertical < horizontal, "垂直 {vertical}，水平 {horizontal}");
+}
+
+#[test]
+fn 挑碎片最少的角度_梳子選垂直() {
+    use stitch_gen::fill::best_fill_angle;
+    let a = best_fill_angle(&comb(), 4.0, 45.0);
+    assert!((a - 90.0).abs() < 12.0, "選了 {a} 度");
+}
+
+#[test]
+fn 挑角度_碎片一樣多時取最接近偏好的角度() {
+    use stitch_gen::fill::best_fill_angle;
+    // 方塊各角度的碎片數都是 1：應回到偏好的 45 度
+    let a = best_fill_angle(&rect(0.0, 0.0, 100.0, 100.0), 4.0, 45.0);
+    assert!((a - 45.0).abs() < 6.0, "選了 {a} 度");
+}

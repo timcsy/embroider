@@ -21,6 +21,7 @@ pub fn underlay(poly: &Polygon, fill_angle_deg: f64) -> Vec<Run> {
             max_stitch: 35.0,
             min_stitch: 5.0,
             angle_deg: fill_angle_deg + 90.0,
+            y_offset: 0.0,
         },
     ));
     runs

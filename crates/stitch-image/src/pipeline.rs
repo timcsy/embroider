@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use stitch_core::hoop::Hoop;
 use stitch_core::palette::threads;
 use stitch_core::{ThreadColor, UserMessage};
-use stitch_gen::design::{build_plan, ColoredShape, PreviewResult, Settings};
+use stitch_gen::design::{build_plan_with_blends, ColoredShape, PreviewResult, Settings};
 
 /// 處理時圖片長邊最多幾像素（再大的先縮小，速度與品質都夠用）。
 const MAX_SIDE: usize = 512;
@@ -224,6 +224,76 @@ fn nearest_thread(c: Rgb, palette: &[ThreadColor]) -> ThreadColor {
         .clone()
 }
 
+/// 單一線色離目標色（完整色差）超過這個距離，才考慮兩色混色。
+const BLEND_MIN_DISTANCE: f64 = 14.0;
+/// 混色的兩條線彼此的色差上限。
+const BLEND_MAX_SPREAD: f64 = 55.0;
+/// 混色的距離要小到單色的這個比例以下才採用（混色會多換一次線，沒有明顯變好就不值得）。
+const BLEND_GAIN: f64 = 0.5;
+
+/// 飽和度（越小越接近灰）。
+fn chroma(l: Lab) -> f64 {
+    (l[1] * l[1] + l[2] * l[2]).sqrt()
+}
+
+/// 飽和度低於這個值的線（灰、黑、白）不拿來混有顏色的目標。
+const NEUTRAL_CHROMA: f64 = 14.0;
+
+/// 兩條線交錯繡出來的平均色（以光的強度平均，不是直接平均數值）。
+fn mixed(a: &ThreadColor, b: &ThreadColor) -> Rgb {
+    let lin = |v: u8| (v as f64 / 255.0).powf(2.2);
+    let back = |v: f64| (v.powf(1.0 / 2.2) * 255.0).round().clamp(0.0, 255.0) as u8;
+    [
+        back((lin(a.r) + lin(b.r)) / 2.0),
+        back((lin(a.g) + lin(b.g)) / 2.0),
+        back((lin(a.b) + lin(b.b)) / 2.0),
+    ]
+}
+
+/// 配線色：單色夠接近就用單色；否則看兩種線交錯的中間色是否明顯更接近。
+/// 混色用完整的色差（含亮度）比較：混出來色相對、亮度卻差很多的（灰綠、髒灰）不算好；
+/// 兩條線本身也不能差太遠，否則交錯的列會變成明顯的條紋。
+/// 回傳（主色, 混色線）。
+fn pick_color(c: Rgb, palette: &[ThreadColor]) -> (ThreadColor, Option<ThreadColor>) {
+    let single = nearest_thread(c, palette);
+    let l = lab(c);
+    let lab_of = |t: &ThreadColor| lab([t.r, t.g, t.b]);
+    let full_single = delta(l, lab_of(&single));
+    let target_chroma = chroma(l);
+    if full_single <= BLEND_MIN_DISTANCE {
+        return (single, None);
+    }
+    let mut best: Option<(f64, &ThreadColor, &ThreadColor)> = None;
+    for (i, a) in palette.iter().enumerate() {
+        for b in &palette[i + 1..] {
+            if delta(lab_of(a), lab_of(b)) > BLEND_MAX_SPREAD {
+                continue;
+            }
+            // 有顏色的目標不拿灰、黑、白去混：混出來只會髒、變灰
+            if target_chroma > NEUTRAL_CHROMA
+                && (chroma(lab_of(a)) < NEUTRAL_CHROMA || chroma(lab_of(b)) < NEUTRAL_CHROMA)
+            {
+                continue;
+            }
+            let d = delta(l, lab(mixed(a, b)));
+            if best.is_none_or(|x| d < x.0) {
+                best = Some((d, a, b));
+            }
+        }
+    }
+    match best {
+        Some((d, a, b)) if d <= full_single * BLEND_GAIN => {
+            // 主色取比較接近目標的那條（底針與輪廓用主色）
+            if delta(l, lab_of(a)) <= delta(l, lab_of(b)) {
+                (a.clone(), Some(b.clone()))
+            } else {
+                (b.clone(), Some(a.clone()))
+            }
+        }
+        _ => (single, None),
+    }
+}
+
 /// 最多留幾個獨立的物件。簡化程度越高留越少：30 → 約 46 個，100 → 12 個。
 fn object_budget(simplify: f64) -> usize {
     (OBJECTS_MIN as f64 + (OBJECTS_MAX - OBJECTS_MIN) as f64 * (1.0 - simplify / 100.0)).round()
@@ -320,7 +390,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     // 平滑半徑以「一個像素有多大」為準：磨掉像素階梯，又不會把細節整個吃掉
     let smooth_r = scale * (1.0 + simplify / 100.0);
     let min_feature = req.settings.min_stroke_width * (1.0 + simplify / 50.0);
-    let mut shapes: Vec<(f64, ColoredShape)> = Vec::new();
+    let mut shapes: Vec<(f64, ColoredShape, Option<ThreadColor>)> = Vec::new();
     let mut area_px = 0.0;
     for (label, &center) in centers.iter().enumerate() {
         let poly = label_polygon(&labels, w, h, label as i16);
@@ -332,12 +402,13 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
             .scale(scale);
         let smoothed = phys.offset(smooth_r).offset(-smooth_r);
         // 深色的部分（卡通圖的輪廓、眼睛、文字）：細的地方整條去掉會讓圖案糊成一團，
-        // 所以不做「去掉太細的部分」，改成整體稍微加粗，讓細線剛好繡得出來。
+        // 所以不做「去掉太細的部分」。細線之後由中線平針／緞面處理，不必再加粗
+        // （加粗會把字的空洞填滿、字形變胖）。
         // 淺色的細線只是邊緣的模糊過渡，照常去掉，否則圖案外面會多一圈邊。
         let strong = bg_lab.is_some_and(|b| delta(lab(center), b) > STRONG_CONTRAST);
         let cleaned = if lab(center)[0] < DARK_LINE_L || strong {
             let eps = min_feature * 0.1;
-            smoothed.offset(-eps).offset(eps + min_feature / 4.0)
+            smoothed.offset(-eps).offset(eps)
         } else {
             smoothed
                 .offset(-min_feature / 2.0)
@@ -347,12 +418,14 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
             continue;
         }
         area_px += cleaned.area() / (scale * scale);
+        let (color, blend) = pick_color(center, &palette);
         shapes.push((
             cleaned.area(),
             ColoredShape {
                 polygon: cleaned,
-                color: nearest_thread(center, &palette),
+                color,
             },
+            blend,
         ));
     }
     if shapes.is_empty() {
@@ -364,7 +437,8 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     }
     // 大面積先繡，細節疊在上面
     shapes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    let shapes: Vec<ColoredShape> = shapes.into_iter().map(|s| s.1).collect();
+    let (shapes, blends): (Vec<ColoredShape>, Vec<Option<ThreadColor>>) =
+        shapes.into_iter().map(|s| (s.1, s.2)).unzip();
 
     let mut notes: Vec<UserMessage> = Vec::new();
     let significant = q.mean_error > PHOTO_ERROR;
@@ -384,8 +458,9 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         ));
     }
 
-    let mut result = build_plan(
+    let mut result = build_plan_with_blends(
         &shapes,
+        &blends,
         req.size,
         &req.hoop,
         &Settings {

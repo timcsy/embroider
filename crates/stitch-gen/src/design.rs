@@ -2,7 +2,7 @@
 //! 放大到最小可繡尺寸 → 縮小到放進繡框 → 拉伸補償 → 逐個相連形狀鋪底針、填充、輪廓 → 跳針剪線。
 //! 文字與圖片兩條路徑共用。
 
-use crate::fill::{fill, FillParams};
+use crate::fill::{best_fill_angle, fill, FillParams};
 use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use crate::outline::outline;
@@ -58,6 +58,9 @@ impl Default for Settings {
         }
     }
 }
+
+/// 一個形狀的針跡：（主色的針跡, 混色線的針跡）。
+type RunSets = (Vec<Run>, Vec<Run>);
 
 /// 以框中心為原點、y 軸向下的多邊形，加上要用的線色。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,21 +148,51 @@ pub fn build_plan(
     hoop: &Hoop,
     s: &Settings,
 ) -> PreviewResult {
-    let shapes: Vec<&ColoredShape> = shapes.iter().filter(|c| !c.polygon.is_empty()).collect();
-    if shapes.is_empty() || reference_height <= 0.0 {
+    build_plan_with_blends(shapes, &vec![None; shapes.len()], reference_height, hoop, s)
+}
+
+/// 同 `build_plan`，但每個形狀可以多指定一條「混色線」：填充區域改成兩色交錯的列，
+/// 看起來是兩色的中間色（例如紅加藍近似紫色），不必為了少數顏色準備更多線色。
+/// 做法來自 Brother 的專利 US8473090B2（以兩種線的混合近似色票裡沒有的顏色）。
+/// `blends` 與 `shapes` 一一對應；只有填充區域會混色，細線與緞面仍用主色。
+pub fn build_plan_with_blends(
+    shapes: &[ColoredShape],
+    blends: &[Option<ThreadColor>],
+    reference_height: f64,
+    hoop: &Hoop,
+    s: &Settings,
+) -> PreviewResult {
+    let pairs: Vec<(&ColoredShape, Option<&ThreadColor>)> = shapes
+        .iter()
+        .zip(
+            blends
+                .iter()
+                .map(Option::as_ref)
+                .chain(std::iter::repeat(None)),
+        )
+        .filter(|(c, _)| !c.polygon.is_empty())
+        .collect();
+    if pairs.is_empty() || reference_height <= 0.0 {
         return PreviewResult::blocked(UserMessage::new(
             "empty_design",
             "還沒有可以繡的內容。",
             Some("請先輸入文字或選一張圖。"),
         ));
     }
-    let owned: Vec<ColoredShape> = shapes.into_iter().cloned().collect();
+    let owned: Vec<ColoredShape> = pairs.iter().map(|p| p.0.clone()).collect();
+    let blend_of: Vec<Option<ThreadColor>> = pairs.iter().map(|p| p.1.cloned()).collect();
     let mut adjustments = Vec::new();
 
     // 1. 太小就放大（多數情況只檢查一次）
+    // 依形狀選繡法時，比最小筆畫細的線會改走單線平針，不需要為了它們放大整張圖，
+    // 也不該因為縮小後線更細就擋下來。
     let min_params = MinSizeParams {
         min_text_height: s.min_text_height,
-        min_stroke_width: s.min_stroke_width,
+        min_stroke_width: if s.shape_aware {
+            0.0
+        } else {
+            s.min_stroke_width
+        },
     };
     let unit = all_rings(&owned, 1.0);
     let desired = enlarge_needed(&unit, reference_height, &min_params);
@@ -217,12 +250,14 @@ pub fn build_plan(
         max_stitch: s.max_stitch,
         min_stitch: 5.0,
         angle_deg: s.fill_angle,
+        y_offset: 0.0,
     };
     let mut blocks = Vec::new();
-    for shape in &owned {
+    for (shape, blend) in owned.iter().zip(&blend_of) {
         let scaled = shape.polygon.scale(final_scale);
         // 先把每一塊相連的形狀各自繡成一組針跡，再依位置排順序（減少跳針）
-        let mut items: Vec<(Polygon, Vec<Run>)> = Vec::new();
+        // （形狀, 主色的針跡, 混色線的針跡）
+        let mut items: Vec<(Polygon, RunSets)> = Vec::new();
         let bases = if s.shape_aware {
             scaled.shapes()
         } else {
@@ -244,18 +279,23 @@ pub fn build_plan(
                         runs.extend(satin(line, s.pull_comp.max(0.0)));
                     }
                 }
-                items.push((base, runs));
+                items.push((base, (runs, Vec::new())));
                 continue;
             }
             let expanded = base.offset(s.pull_comp.max(0.0));
             for part in expanded.shapes() {
+                // 依形狀選角度：碎片最少的；一樣時偏好順著長邊
                 let angle = if s.shape_aware {
-                    principal_angle(&part).unwrap_or(s.fill_angle)
+                    let prefer = principal_angle(&part).unwrap_or(s.fill_angle);
+                    best_fill_angle(&part, s.row_spacing, prefer)
                 } else {
                     s.fill_angle
                 };
+                // 混色：兩色各繡一半的列（行距加倍），第二色錯開一個行距，合起來等於一般的密度
+                let step = if blend.is_some() { 2.0 } else { 1.0 };
                 let fp = FillParams {
                     angle_deg: angle,
+                    row_spacing: s.row_spacing * step,
                     ..fill_params
                 };
                 let mut runs: Vec<Run> = underlay(&part, angle);
@@ -263,14 +303,33 @@ pub fn build_plan(
                 if s.edge_outline {
                     runs.extend(outline(&part, 25.0));
                 }
-                items.push((part, runs));
+                let second = if blend.is_some() {
+                    fill(
+                        &part,
+                        &FillParams {
+                            y_offset: s.row_spacing,
+                            ..fp
+                        },
+                    )
+                } else {
+                    Vec::new()
+                };
+                items.push((part, (runs, second)));
             }
         }
-        let runs: Vec<Run> = order_nearest(items).into_iter().flatten().collect();
+        let (main_runs, blend_runs): (Vec<Vec<Run>>, Vec<Vec<Run>>) =
+            order_nearest(items).into_iter().unzip();
         blocks.push(ColorBlock {
             color: shape.color.clone(),
-            runs,
+            runs: main_runs.into_iter().flatten().collect(),
         });
+        let blend_runs: Vec<Run> = blend_runs.into_iter().flatten().collect();
+        if let (Some(color), false) = (blend, blend_runs.is_empty()) {
+            blocks.push(ColorBlock {
+                color: color.clone(),
+                runs: blend_runs,
+            });
+        }
     }
 
     let travel = TravelParams {

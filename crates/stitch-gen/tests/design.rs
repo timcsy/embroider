@@ -196,3 +196,68 @@ fn 圓形框也能適配() {
     assert!(r.blocked.is_none(), "{:?}", r.blocked);
     validate_plan(&r.plan, &round).unwrap();
 }
+
+#[test]
+fn 兩色交錯混色_兩條線都繡滿同一塊區域() {
+    use stitch_core::StitchKind;
+    use stitch_gen::design::build_plan_with_blends;
+    let red = ThreadColor::new(200, 30, 40, "紅");
+    let blue = ThreadColor::new(40, 80, 180, "藍");
+    let shape = ColoredShape {
+        polygon: centered_rect(400.0, 400.0),
+        color: red.clone(),
+    };
+    let r = build_plan_with_blends(
+        &[shape],
+        &[Some(blue.clone())],
+        400.0,
+        &hoop("b70-large"),
+        &Settings::default(),
+    );
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(r.plan.colors.len(), 2, "{:?}", r.plan.colors);
+    // 逐色統計針點的範圍與針數
+    let mut color = 0usize;
+    let mut stats = [(i32::MAX, i32::MIN, i32::MAX, i32::MIN, 0usize); 2];
+    for s in &r.plan.stitches {
+        match s.kind {
+            StitchKind::ColorChange => color += 1,
+            StitchKind::Stitch => {
+                let t = &mut stats[color];
+                *t = (
+                    t.0.min(s.x),
+                    t.1.max(s.x),
+                    t.2.min(s.y),
+                    t.3.max(s.y),
+                    t.4 + 1,
+                );
+            }
+            _ => {}
+        }
+    }
+    let (a, b) = (stats[0], stats[1]);
+    assert!(a.4 > 100 && b.4 > 100, "兩色針數 {} {}", a.4, b.4);
+    // 兩色蓋住同樣的範圍（誤差在一列行距內）
+    assert!(
+        (a.0 - b.0).abs() < 40 && (a.1 - b.1).abs() < 40,
+        "{a:?} {b:?}"
+    );
+    assert!(
+        (a.2 - b.2).abs() < 40 && (a.3 - b.3).abs() < 40,
+        "{a:?} {b:?}"
+    );
+    // 兩色的針數相近（各佔一半的列）
+    let ratio = a.4 as f64 / b.4 as f64;
+    assert!((0.5..2.0).contains(&ratio), "針數比 {ratio}");
+}
+
+#[test]
+fn 沒有混色時和原本的結果完全一樣() {
+    use stitch_gen::design::build_plan_with_blends;
+    let shapes = one(centered_rect(200.0, 100.0));
+    let h = hoop("b70-medium");
+    let s = Settings::default();
+    let plain = build_plan(&shapes, 100.0, &h, &s);
+    let none = build_plan_with_blends(&shapes, &[None], 100.0, &h, &s);
+    assert_eq!(plain.plan, none.plan);
+}

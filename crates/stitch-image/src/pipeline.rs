@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use stitch_core::hoop::Hoop;
 use stitch_core::palette::threads;
 use stitch_core::{ThreadColor, UserMessage};
-use stitch_gen::design::{build_plan_with_blends, ColoredShape, PreviewResult, Settings};
+use stitch_gen::design::{
+    build_plan_with_blends, BlendPair, ColoredShape, PreviewResult, Settings,
+};
 
 /// 處理時圖片長邊最多幾像素（再大的先縮小，速度與品質都夠用）。
 const MAX_SIDE: usize = 512;
@@ -253,8 +255,8 @@ fn mixed(a: &ThreadColor, b: &ThreadColor) -> Rgb {
 /// 配線色：單色夠接近就用單色；否則看兩種線交錯的中間色是否明顯更接近。
 /// 混色用完整的色差（含亮度）比較：混出來色相對、亮度卻差很多的（灰綠、髒灰）不算好；
 /// 兩條線本身也不能差太遠，否則交錯的列會變成明顯的條紋。
-/// 回傳（主色, 混色線）。
-fn pick_color(c: Rgb, palette: &[ThreadColor]) -> (ThreadColor, Option<ThreadColor>) {
+/// 回傳（最接近的單色, 混色的兩條線）；太窄的地方不適合混色，會改用單色。
+fn pick_color(c: Rgb, palette: &[ThreadColor]) -> (ThreadColor, Option<BlendPair>) {
     let single = nearest_thread(c, palette);
     let l = lab(c);
     let lab_of = |t: &ThreadColor| lab([t.r, t.g, t.b]);
@@ -283,11 +285,11 @@ fn pick_color(c: Rgb, palette: &[ThreadColor]) -> (ThreadColor, Option<ThreadCol
     }
     match best {
         Some((d, a, b)) if d <= full_single * BLEND_GAIN => {
-            // 主色取比較接近目標的那條（底針與輪廓用主色）
+            // 兩條線誰先繡誰後繡都可以；較接近目標的先繡（底針與輪廓跟著它）
             if delta(l, lab_of(a)) <= delta(l, lab_of(b)) {
-                (a.clone(), Some(b.clone()))
+                (single, Some([a.clone(), b.clone()]))
             } else {
-                (b.clone(), Some(a.clone()))
+                (single, Some([b.clone(), a.clone()]))
             }
         }
         _ => (single, None),
@@ -390,7 +392,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     // 平滑半徑以「一個像素有多大」為準：磨掉像素階梯，又不會把細節整個吃掉
     let smooth_r = scale * (1.0 + simplify / 100.0);
     let min_feature = req.settings.min_stroke_width * (1.0 + simplify / 50.0);
-    let mut shapes: Vec<(f64, ColoredShape, Option<ThreadColor>)> = Vec::new();
+    let mut shapes: Vec<(f64, ColoredShape, Option<BlendPair>)> = Vec::new();
     let mut area_px = 0.0;
     for (label, &center) in centers.iter().enumerate() {
         let poly = label_polygon(&labels, w, h, label as i16);
@@ -437,7 +439,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     }
     // 大面積先繡，細節疊在上面
     shapes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    let (shapes, blends): (Vec<ColoredShape>, Vec<Option<ThreadColor>>) =
+    let (shapes, blends): (Vec<ColoredShape>, Vec<Option<BlendPair>>) =
         shapes.into_iter().map(|s| (s.1, s.2)).unzip();
 
     let mut notes: Vec<UserMessage> = Vec::new();

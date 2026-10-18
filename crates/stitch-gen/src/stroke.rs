@@ -45,6 +45,17 @@ fn perimeter(poly: &Polygon) -> f64 {
         .sum()
 }
 
+/// 形狀的平均寬度（2×面積÷周長）；細長筆畫約等於它的寬，圓盤約等於半徑。
+pub fn mean_width(poly: &Polygon) -> f64 {
+    let n = poly.normalized();
+    let p = perimeter(&n);
+    if p <= 0.0 {
+        0.0
+    } else {
+        2.0 * n.area() / p
+    }
+}
+
 /// 依形狀的平均寬度（2×面積÷周長）與長寬比決定繡法。`poly` 應是單一相連的形狀。
 pub fn classify(poly: &Polygon) -> StrokeKind {
     let n = poly.normalized();

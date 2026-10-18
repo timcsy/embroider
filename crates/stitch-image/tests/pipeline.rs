@@ -529,3 +529,22 @@ fn 有細線的圖放不進框時縮小而不是被擋下() {
         r.adjustments
     );
 }
+
+/// 使用者實際上傳的尺寸（長邊 512）的細碎插畫：放進大框時不能被擋下。
+/// （細線改走單線平針後，「筆畫比最小寬度細」不該再讓設計被放大或拒絕。）
+#[test]
+fn 五百一十二像素的細碎插畫放進大框不被擋下() {
+    let small = std::fs::read("tests/fixtures/thanks-256.rgba").unwrap();
+    let (sw, sh) = (256usize, 171usize);
+    let (w, h) = (sw * 2, sh * 2);
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let i = ((y / 2) * sw + x / 2) * 4;
+            rgba.extend_from_slice(&small[i..i + 4]);
+        }
+    }
+    let img = Img { w, h, rgba };
+    let r = build_image_preview(&request(&img, 9, 30, 1400.0, "b70-large"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+}

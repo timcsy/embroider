@@ -209,7 +209,7 @@ fn 兩色交錯混色_兩條線都繡滿同一塊區域() {
     };
     let r = build_plan_with_blends(
         &[shape],
-        &[Some(blue.clone())],
+        &[Some([red.clone(), blue.clone()])],
         400.0,
         &hoop("b70-large"),
         &Settings::default(),
@@ -260,4 +260,25 @@ fn 沒有混色時和原本的結果完全一樣() {
     let plain = build_plan(&shapes, 100.0, &h, &s);
     let none = build_plan_with_blends(&shapes, &[None], 100.0, &h, &s);
     assert_eq!(plain.plan, none.plan);
+}
+
+#[test]
+fn 太窄的區域不混色_避免變成條紋() {
+    use stitch_gen::design::build_plan_with_blends;
+    let shape = ColoredShape {
+        polygon: centered_rect(400.0, 20.0), // 2mm 寬
+        color: ThreadColor::new(200, 30, 40, "紅"),
+    };
+    let r = build_plan_with_blends(
+        &[shape],
+        &[Some([
+            ThreadColor::new(200, 30, 40, "紅"),
+            ThreadColor::new(40, 80, 180, "藍"),
+        ])],
+        400.0,
+        &hoop("b70-large"),
+        &Settings::default(),
+    );
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(r.plan.colors.len(), 1, "{:?}", r.plan.colors);
 }

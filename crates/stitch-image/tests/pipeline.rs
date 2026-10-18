@@ -368,3 +368,49 @@ fn 相鄰色塊的針跡範圍互相重疊沒有縫() {
     // 單位 0.1mm；兩色的交界在 x=0，兩邊都要越過交界至少 0.2mm
     assert!(red.1 >= 2 && blue.0 <= -2, "紅 {:?} 藍 {:?}", red, blue);
 }
+
+/// 感恩節插畫：中間的「THANKS GIVING DAY!」是主角，字的筆畫細，不能被當成雜訊整個去掉。
+/// 取中間字樣範圍內的針數：字若被去掉，只剩零星幾塊。
+#[test]
+fn 插畫中間的標題文字筆畫保留() {
+    let rgba = std::fs::read("tests/fixtures/thanks-256.rgba").unwrap();
+    let img = Img {
+        w: 256,
+        h: 171,
+        rgba,
+    };
+    let r = build_image_preview(&request(&img, 6, 50, 1600.0, "b70-large"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    // 字樣約佔圖寬 27%～76%、圖高 25%～63%；圖以中心為原點，寬 1600（0.1mm）
+    let (w, h) = (1600.0, 1600.0 * 171.0 / 256.0);
+    let inside = r
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .filter(|s| {
+            let (fx, fy) = (s.x as f64 / w + 0.5, s.y as f64 / h + 0.5);
+            (0.27..0.76).contains(&fx) && (0.25..0.63).contains(&fy)
+        })
+        .count();
+    eprintln!("字樣範圍內的針數 {inside}");
+    assert!(
+        inside > 3000,
+        "字樣範圍內只有 {inside} 針，標題文字被吃掉了"
+    );
+}
+
+/// 淡淡的薄荷綠（葉子）要配成綠色系，不是灰色。
+#[test]
+fn 淡薄荷綠的葉子配成綠色系而不是灰色() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(40, 40, 160, 160, [190, 224, 203]);
+    let r = build_image_preview(&request(&img, 2, 30, 500.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(r.plan.colors.len(), 1);
+    assert!(
+        r.plan.colors[0].name.contains('綠'),
+        "配成了「{}」",
+        r.plan.colors[0].name
+    );
+}

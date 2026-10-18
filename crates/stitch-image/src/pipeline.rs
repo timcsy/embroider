@@ -21,6 +21,8 @@ const NEAR_BACKGROUND: f64 = 20.0;
 const MERGE_DELTA: f64 = 12.0;
 /// 配色時亮度差的權重（色相與飽和度的差是 1）。
 const LIGHTNESS_WEIGHT: f64 = 0.25;
+/// 跟背景的色差大到這個程度的顏色，細的部分多半是刻意畫的線條或字，不是邊緣的過渡
+const STRONG_CONTRAST: f64 = 45.0;
 const DARK_LINE_L: f64 = 50.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,14 +253,16 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
             }
         }
     }
+    let mut bg_lab = None;
     if let Some(&(bg, n)) = border.iter().max_by_key(|b| (b.1, std::cmp::Reverse(b.0))) {
         if n * 2 >= border_total {
             // 顏色跟背景幾乎一樣的（圖案邊緣的過渡色）一併當背景，免得繡出一圈多餘的邊
-            let bg_lab = lab(centers[bg as usize]);
+            let bg_lab_v = lab(centers[bg as usize]);
+            bg_lab = Some(bg_lab_v);
             let near_bg: Vec<bool> = centers
                 .iter()
                 .enumerate()
-                .map(|(i, &c)| i as i16 == bg || delta(lab(c), bg_lab) < NEAR_BACKGROUND)
+                .map(|(i, &c)| i as i16 == bg || delta(lab(c), bg_lab_v) < NEAR_BACKGROUND)
                 .collect();
             for l in labels
                 .iter_mut()
@@ -302,7 +306,8 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         // 深色的部分（卡通圖的輪廓、眼睛、文字）：細的地方整條去掉會讓圖案糊成一團，
         // 所以不做「去掉太細的部分」，改成整體稍微加粗，讓細線剛好繡得出來。
         // 淺色的細線只是邊緣的模糊過渡，照常去掉，否則圖案外面會多一圈邊。
-        let cleaned = if lab(center)[0] < DARK_LINE_L {
+        let strong = bg_lab.is_some_and(|b| delta(lab(center), b) > STRONG_CONTRAST);
+        let cleaned = if lab(center)[0] < DARK_LINE_L || strong {
             let eps = min_feature * 0.1;
             smoothed.offset(-eps).offset(eps + min_feature / 4.0)
         } else {

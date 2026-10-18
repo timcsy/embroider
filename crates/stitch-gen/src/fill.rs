@@ -187,3 +187,132 @@ pub fn fill(poly: &Polygon, p: &FillParams) -> Vec<Run> {
     }
     runs
 }
+
+/// 輪廓填充前簡化輪廓的容許誤差（0.1mm）：看不出差別，但頂點數少很多。
+const SIMPLIFY_TOLERANCE: f64 = 1.0;
+
+fn simplify_polygon(poly: &Polygon) -> Polygon {
+    Polygon::new(
+        poly.rings
+            .iter()
+            .map(|r| simplify_ring(r, SIMPLIFY_TOLERANCE))
+            .filter(|r| r.len() >= 3)
+            .collect(),
+    )
+}
+
+/// Douglas-Peucker 簡化封閉的環（保留起訖頂點之外的端點選擇：以最遠的兩個頂點切成兩段）。
+fn simplify_ring(ring: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
+    let n = ring.len();
+    if n <= 4 {
+        return ring.to_vec();
+    }
+    // 取距離第 0 點最遠的點當第二個錨點，把環切成兩條開放的折線分別簡化
+    let far = (1..n)
+        .max_by(|&a, &b| {
+            let d =
+                |i: usize| (ring[i][0] - ring[0][0]).powi(2) + (ring[i][1] - ring[0][1]).powi(2);
+            d(a).partial_cmp(&d(b)).unwrap()
+        })
+        .unwrap();
+    let mut first: Vec<[f64; 2]> = ring[..=far].to_vec();
+    let mut second: Vec<[f64; 2]> = ring[far..].to_vec();
+    second.push(ring[0]);
+    let mut out = rdp(&first, tol);
+    out.pop();
+    out.extend(rdp(&second, tol));
+    out.pop();
+    first.clear();
+    out
+}
+
+fn rdp(pts: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    let (a, b) = (pts[0], pts[pts.len() - 1]);
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    let mut worst = (0usize, 0.0f64);
+    for (i, p) in pts.iter().enumerate().take(pts.len() - 1).skip(1) {
+        let d = if len < 1e-9 {
+            ((p[0] - a[0]).powi(2) + (p[1] - a[1]).powi(2)).sqrt()
+        } else {
+            ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx).abs() / len
+        };
+        if d > worst.1 {
+            worst = (i, d);
+        }
+    }
+    if worst.1 <= tol {
+        return vec![a, b];
+    }
+    let mut left = rdp(&pts[..=worst.0], tol);
+    let right = rdp(&pts[worst.0..], tol);
+    left.pop();
+    left.extend(right);
+    left
+}
+
+/// 輪廓填充最多繞幾圈（0.4mm 行距下約 80mm 深，遠超過繡框）。
+const MAX_CONTOUR_ROUNDS: usize = 200;
+
+/// 輪廓填充（contour fill）：沿著區域邊緣一圈一圈往內縮，針跡順著形狀的輪廓走，
+/// 圓潤的形狀（花瓣、水滴）看起來比單一方向的填充自然。圈與圈之間以一般針連接，不用跳針。
+/// 第一圈離邊半個行距，之後每圈往內一個行距，直到縮不進去為止。
+pub fn contour_fill(poly: &Polygon, p: &FillParams) -> Vec<Run> {
+    // 管線出來的多邊形頂點很多（像素階梯平滑後的小弧），先簡化再一圈圈偏移，否則每圈都很慢
+    let first = simplify_polygon(&poly.normalized()).offset(-p.row_spacing * 0.5);
+    let mut current: Vec<Polygon> = first.shapes();
+    let mut runs: Vec<Run> = Vec::new();
+    let mut last: Option<[f64; 2]> = None;
+    // 保險：偏移運算在極小或退化的形狀上可能一直留下碎屑，限制圈數與最小面積，確保一定會結束
+    let min_area = p.row_spacing * p.row_spacing;
+    let mut rounds = 0;
+    while !current.is_empty() && rounds < MAX_CONTOUR_ROUNDS {
+        rounds += 1;
+        current.retain(|c| c.area() >= min_area);
+        let mut next: Vec<Polygon> = Vec::new();
+        for shape in &current {
+            for mut ring in crate::outline::outline(shape, p.max_stitch) {
+                // 讓這一圈從離上一圈終點最近的地方開始，換圈時就不用跳針
+                if let Some(at) = last {
+                    ring = rotate_closed(ring, at);
+                }
+                last = ring.last().copied();
+                runs.push(ring);
+            }
+            // 每圈偏移後再簡化：偏移會在轉角留下很多小弧，不簡化的話頂點數一圈比一圈多，越來越慢
+            next.extend(
+                shape
+                    .offset(-p.row_spacing)
+                    .shapes()
+                    .into_iter()
+                    .map(|sh| simplify_polygon(&sh)),
+            );
+        }
+        current = next;
+    }
+    runs
+}
+
+/// 把封閉的針跡（首尾同點）換成從最接近 `at` 的點開始。
+fn rotate_closed(run: Run, at: [f64; 2]) -> Run {
+    if run.len() < 3 {
+        return run;
+    }
+    let body = &run[..run.len() - 1];
+    let (start, _) = body
+        .iter()
+        .enumerate()
+        .map(|(i, q)| (i, (q[0] - at[0]).powi(2) + (q[1] - at[1]).powi(2)))
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap();
+    let mut out: Run = body[start..]
+        .iter()
+        .chain(body[..start].iter())
+        .copied()
+        .collect();
+    out.push(out[0]);
+    out
+}

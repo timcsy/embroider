@@ -476,6 +476,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         &req.hoop,
         &Settings {
             shape_aware: true,
+            contour_fill: true,
             ..req.settings.clone()
         },
     );

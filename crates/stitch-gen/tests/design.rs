@@ -282,3 +282,70 @@ fn 太窄的區域不混色_避免變成條紋() {
     assert!(r.blocked.is_none(), "{:?}", r.blocked);
     assert_eq!(r.plan.colors.len(), 1, "{:?}", r.plan.colors);
 }
+
+fn disc(r: f64) -> Polygon {
+    Polygon::new(vec![(0..96)
+        .map(|i| {
+            let a = i as f64 / 96.0 * std::f64::consts::TAU;
+            [r * a.cos(), r * a.sin()]
+        })
+        .collect()])
+}
+
+#[test]
+fn 圓形用輪廓填充時針點順著邊緣一圈圈往內() {
+    use stitch_core::StitchKind;
+    let shape = ColoredShape {
+        polygon: disc(200.0),
+        color: black(),
+    };
+    let r = build_plan(
+        &[shape],
+        400.0,
+        &hoop("b70-large"),
+        &Settings {
+            shape_aware: true,
+            contour_fill: true,
+            ..Settings::default()
+        },
+    );
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    // 順著邊緣：針點到圓心的距離會一圈圈變小，相鄰兩針的距離變化小
+    let pts: Vec<(f64, f64)> = r
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .map(|s| (s.x as f64, s.y as f64))
+        .collect();
+    let radii: Vec<f64> = pts.iter().map(|p| (p.0 * p.0 + p.1 * p.1).sqrt()).collect();
+    // 後半段（輪廓填充）半徑幾乎單調遞減：統計「半徑變小」的比例
+    let tail = &radii[radii.len() / 2..];
+    let decreasing = tail.windows(2).filter(|w| w[1] <= w[0] + 1.0).count();
+    assert!(
+        decreasing as f64 / tail.len() as f64 > 0.85,
+        "沒有一圈圈往內：{:.2}",
+        decreasing as f64 / tail.len() as f64
+    );
+    validate_plan(&r.plan, &hoop("b70-large")).unwrap();
+}
+
+#[test]
+fn 關掉輪廓填充時圓形和原本一樣() {
+    let shape = || ColoredShape {
+        polygon: disc(200.0),
+        color: black(),
+    };
+    let h = hoop("b70-large");
+    let a = build_plan(&[shape()], 400.0, &h, &Settings::default());
+    let b = build_plan(
+        &[shape()],
+        400.0,
+        &h,
+        &Settings {
+            contour_fill: false,
+            ..Settings::default()
+        },
+    );
+    assert_eq!(a.plan, b.plan);
+}

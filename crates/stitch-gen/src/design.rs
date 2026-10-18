@@ -2,7 +2,7 @@
 //! 放大到最小可繡尺寸 → 縮小到放進繡框 → 拉伸補償 → 逐個相連形狀鋪底針、填充、輪廓 → 跳針剪線。
 //! 文字與圖片兩條路徑共用。
 
-use crate::fill::{best_fill_angle, fill, FillParams};
+use crate::fill::{best_fill_angle, contour_fill, fill, FillParams};
 use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use crate::outline::outline;
@@ -42,6 +42,8 @@ pub struct Settings {
     /// 依形狀選繡法：細線走中線平針、窄柱走緞面、寬的填充，且填充順著形狀的長邊。
     /// 文字用字型的筆畫，不需要；圖片才開。
     pub shape_aware: bool,
+    /// 圓潤、沒有明顯長邊的填充區域改用輪廓填充（一圈一圈順著邊緣）。需要 `shape_aware`。
+    pub contour_fill: bool,
 }
 
 impl Default for Settings {
@@ -57,6 +59,7 @@ impl Default for Settings {
             trim_threshold: 80.0,
             edge_outline: true,
             shape_aware: false,
+            contour_fill: false,
         }
     }
 }
@@ -292,8 +295,14 @@ pub fn build_plan_with_blends(
             let expanded = base.offset(s.pull_comp.max(0.0));
             for part in expanded.shapes() {
                 // 依形狀選角度：碎片最少的；一樣時偏好順著長邊
+                let axis = if s.shape_aware {
+                    principal_angle(&part)
+                } else {
+                    None
+                };
+                let round = s.shape_aware && axis.is_none();
                 let angle = if s.shape_aware {
-                    let prefer = principal_angle(&part).unwrap_or(s.fill_angle);
+                    let prefer = axis.unwrap_or(s.fill_angle);
                     best_fill_angle(&part, s.row_spacing, prefer)
                 } else {
                     s.fill_angle
@@ -310,9 +319,14 @@ pub fn build_plan_with_blends(
                     ..fill_params
                 };
                 let mut runs: Vec<Run> = underlay(&part, angle);
-                runs.extend(fill(&part, &fp));
-                if s.edge_outline {
-                    runs.extend(outline(&part, 25.0));
+                // 圓潤、沒有明顯長邊的形狀（沒有主軸）：輪廓填充，針跡順著邊緣；已含最外圈，不必再走邊
+                if s.shape_aware && s.contour_fill && part_blend.is_none() && round {
+                    runs.extend(contour_fill(&part, &fp));
+                } else {
+                    runs.extend(fill(&part, &fp));
+                    if s.edge_outline {
+                        runs.extend(outline(&part, 25.0));
+                    }
                 }
                 if part_blend.is_some() {
                     let second = fill(

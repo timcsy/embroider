@@ -383,20 +383,24 @@ fn 插畫中間的標題文字筆畫保留() {
     assert!(r.blocked.is_none(), "{:?}", r.blocked);
     // 字樣約佔圖寬 27%～76%、圖高 25%～63%；圖以中心為原點，寬 1600（0.1mm）
     let (w, h) = (1600.0, 1600.0 * 171.0 / 256.0);
-    let inside = r
+    // 以 1mm 的格子數「有針經過的格數」衡量，而不是針數：緞面比填充省針，但覆蓋的面積一樣
+    let mut cells = std::collections::HashSet::new();
+    for s in r
         .plan
         .stitches
         .iter()
         .filter(|s| s.kind == StitchKind::Stitch)
-        .filter(|s| {
-            let (fx, fy) = (s.x as f64 / w + 0.5, s.y as f64 / h + 0.5);
-            (0.27..0.76).contains(&fx) && (0.25..0.63).contains(&fy)
-        })
-        .count();
-    eprintln!("字樣範圍內的針數 {inside}");
+    {
+        let (fx, fy) = (s.x as f64 / w + 0.5, s.y as f64 / h + 0.5);
+        if (0.27..0.76).contains(&fx) && (0.25..0.63).contains(&fy) {
+            cells.insert((s.x.div_euclid(10), s.y.div_euclid(10)));
+        }
+    }
+    let inside = cells.len();
+    eprintln!("字樣範圍內有針的格數 {inside}");
     assert!(
-        inside > 3000,
-        "字樣範圍內只有 {inside} 針，標題文字被吃掉了"
+        inside > 700,
+        "字樣範圍內只有 {inside} 格有針，標題文字被吃掉了"
     );
 }
 

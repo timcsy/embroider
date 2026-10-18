@@ -6,6 +6,7 @@ pub mod fill;
 pub mod fit;
 pub mod min_size;
 pub mod outline;
+pub mod stroke;
 pub mod travel;
 pub mod underlay;
 

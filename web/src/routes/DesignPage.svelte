@@ -8,6 +8,7 @@
   import type { CoreClient } from '../lib/coreClient'
   import { downloadFiles, nextSequence } from '../lib/export'
   import { listRecent, removeRecent, saveRecent, type SavedDesign } from '../lib/designs'
+  import { fitImageSizeCm } from '../lib/fitSize'
   import { dataUrlToBytes, fileFromBytes, loadImage, stemOf, type LoadedImage } from '../lib/imageInput'
   import { formatsToExport, type Prefs } from '../lib/prefs'
   import { canShareFiles, shareFiles } from '../lib/share'
@@ -167,7 +168,11 @@
       }
       image = r
       const k = await client.suggestColorCount(r.rgba, r.width, r.height)
-      design = { ...design, colors: Math.min(12, Math.max(2, k + 1)) }
+      design = {
+        ...design,
+        colors: Math.min(12, Math.max(2, k + 1)),
+        imageSizeCm: fitImageSizeCm(hoop, r.width, r.height),
+      }
     } finally {
       loadingImage = false
     }

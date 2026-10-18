@@ -77,4 +77,13 @@ describe('效能預算', () => {
     expect(r.blocked).toBeNull()
     expect(ms).toBeLessThan(IMAGE_BUDGET_MS)
   })
+
+  it('圖片轉換（顏色多、細碎的插畫，大框）在預算內', () => {
+    const rgba = new Uint8Array(readFileSync(resolve(__dirname, '../../crates/stitch-image/tests/fixtures/thanks-256.rgba')))
+    const req = { width: 256, height: 171, color_count: 8, simplify: 30, size: 1400, hoop: hoop() }
+    const [r, ms] = time(() => buildImagePreview(req, rgba))
+    console.log('插畫轉換耗時 ms', Math.round(ms), JSON.stringify(r.blocked))
+    expect(r.blocked).toBeNull()
+    expect(ms).toBeLessThan(IMAGE_BUDGET_MS)
+  })
 })

@@ -28,7 +28,7 @@
 | FR-013 記住預設格式 | ✅ | `web/prefs.test.ts`、`e2e/formats-flow` | |
 | FR-014 實機測試說明與一鍵設定 | ✅ | `e2e/formats-flow`、`routes/TryOnMachine.svelte` | 說明文字是否淺白 🧑 |
 | FR-015 選圖（相簿或拍照） | 🟡 | `web/image-input.test.ts`、`e2e/image-flow`（模擬選檔） | 「拍照」按鈕未在真手機上試過 🧑 |
-| FR-016 調整顏色多寡與簡化程度 | ✅ | `image/*`、`e2e/image-flow`（拖顏色、簡化） | |
+| FR-016 調整顏色多寡與簡化程度 | ✅ | `image/*`、`e2e/image-flow`（拖顏色、簡化） | 細線走平針、窄柱走緞面由 `gen/stroke.rs` 守著；圖片預設大小 `web/fit-size.test.ts` |
 | FR-017 不暴露技術術語 | ✅ | `web/strings.test.ts`（掃過所有介面字串） | 檔案副檔名只出現在「試試看機器讀得到哪一種」頁（來自核心的格式說明） |
 | FR-018 白話錯誤訊息 | ✅ | 各層 `*.rs`／`web/*.test.ts` 對錯誤碼與中文訊息的斷言、`e2e` 的 alert 檢查 | |
 | FR-019 可復原 | ✅ | `web/history.test.ts`、`e2e/text-flow`（上一步／下一步） | 選圖不在復原範圍內（刻意，像素太大） |

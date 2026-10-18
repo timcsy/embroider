@@ -6,6 +6,7 @@ use crate::fill::{fill, FillParams};
 use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use crate::outline::outline;
+use crate::stroke::{center_run, plan_stroke, principal_angle, run_stitch, satin, StrokeKind};
 use crate::travel::{assemble, group_by_color, ColorBlock, TravelParams};
 use crate::underlay::underlay;
 use crate::Run;
@@ -36,6 +37,9 @@ pub struct Settings {
     pub trim_threshold: f64,
     /// 填充完是否沿邊緣再走一圈
     pub edge_outline: bool,
+    /// 依形狀選繡法：細線走中線平針、窄柱走緞面、寬的填充，且填充順著形狀的長邊。
+    /// 文字用字型的筆畫，不需要；圖片才開。
+    pub shape_aware: bool,
 }
 
 impl Default for Settings {
@@ -50,6 +54,7 @@ impl Default for Settings {
             jump_threshold: 30.0,
             trim_threshold: 80.0,
             edge_outline: true,
+            shape_aware: false,
         }
     }
 }
@@ -101,13 +106,13 @@ fn center(poly: &Polygon) -> [f64; 2] {
 }
 
 /// 由左上角出發，每次選最近的形狀，減少跳針距離。
-fn order_nearest(mut shapes: Vec<Polygon>) -> Vec<Polygon> {
+fn order_nearest<T>(mut shapes: Vec<(Polygon, T)>) -> Vec<T> {
     let mut out = Vec::with_capacity(shapes.len());
     let mut cur = [f64::MIN / 4.0, f64::MIN / 4.0];
     let mut first = true;
     while !shapes.is_empty() {
-        let key = |s: &Polygon| {
-            let c = center(s);
+        let key = |s: &(Polygon, T)| {
+            let c = center(&s.0);
             if first {
                 c[0] + c[1]
             } else {
@@ -121,9 +126,9 @@ fn order_nearest(mut shapes: Vec<Polygon>) -> Vec<Polygon> {
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
         let s = shapes.remove(i);
-        cur = center(&s);
+        cur = center(&s.0);
         first = false;
-        out.push(s);
+        out.push(s.1);
     }
     out
 }
@@ -215,18 +220,53 @@ pub fn build_plan(
     };
     let mut blocks = Vec::new();
     for shape in &owned {
-        let expanded = shape
-            .polygon
-            .scale(final_scale)
-            .offset(s.pull_comp.max(0.0));
-        let mut runs: Vec<Run> = Vec::new();
-        for part in order_nearest(expanded.shapes()) {
-            runs.extend(underlay(&part, s.fill_angle));
-            runs.extend(fill(&part, &fill_params));
-            if s.edge_outline {
-                runs.extend(outline(&part, 25.0));
+        let scaled = shape.polygon.scale(final_scale);
+        // 先把每一塊相連的形狀各自繡成一組針跡，再依位置排順序（減少跳針）
+        let mut items: Vec<(Polygon, Vec<Run>)> = Vec::new();
+        let bases = if s.shape_aware {
+            scaled.shapes()
+        } else {
+            vec![scaled.clone()]
+        };
+        for base in bases {
+            let stroke = if s.shape_aware {
+                plan_stroke(&base)
+            } else {
+                None
+            };
+            if let Some((kind, lines)) = stroke {
+                let mut runs: Vec<Run> = Vec::new();
+                for line in &lines {
+                    if kind == StrokeKind::Run {
+                        runs.extend(run_stitch(line, 25.0));
+                    } else {
+                        runs.push(center_run(line, 25.0));
+                        runs.extend(satin(line, s.pull_comp.max(0.0)));
+                    }
+                }
+                items.push((base, runs));
+                continue;
+            }
+            let expanded = base.offset(s.pull_comp.max(0.0));
+            for part in expanded.shapes() {
+                let angle = if s.shape_aware {
+                    principal_angle(&part).unwrap_or(s.fill_angle)
+                } else {
+                    s.fill_angle
+                };
+                let fp = FillParams {
+                    angle_deg: angle,
+                    ..fill_params
+                };
+                let mut runs: Vec<Run> = underlay(&part, angle);
+                runs.extend(fill(&part, &fp));
+                if s.edge_outline {
+                    runs.extend(outline(&part, 25.0));
+                }
+                items.push((part, runs));
             }
         }
+        let runs: Vec<Run> = order_nearest(items).into_iter().flatten().collect();
         blocks.push(ColorBlock {
             color: shape.color.clone(),
             runs,

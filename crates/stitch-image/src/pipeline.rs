@@ -356,7 +356,15 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         ));
     }
 
-    let mut result = build_plan(&shapes, req.size, &req.hoop, &req.settings);
+    let mut result = build_plan(
+        &shapes,
+        req.size,
+        &req.hoop,
+        &Settings {
+            shape_aware: true,
+            ..req.settings.clone()
+        },
+    );
     if result.blocked.is_none() {
         notes.append(&mut result.adjustments);
         result.adjustments = notes;

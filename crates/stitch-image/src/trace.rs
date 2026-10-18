@@ -49,6 +49,16 @@ pub fn remove_small_regions(labels: &mut [i16], w: usize, h: usize, min_px: usiz
     if min_px == 0 {
         return;
     }
+    remove_small_regions_by(labels, w, h, |_| min_px);
+}
+
+/// 同上，但每個色塊的門檻由 `limit` 依它的像素位置決定（例如重要的地方門檻低、不重要的地方門檻高）。
+pub fn remove_small_regions_by(
+    labels: &mut [i16],
+    w: usize,
+    h: usize,
+    limit: impl Fn(&[usize]) -> usize,
+) {
     loop {
         // 找出所有連通色塊（4 連通）
         let mut seen = vec![false; w * h];
@@ -86,8 +96,10 @@ pub fn remove_small_regions(labels: &mut [i16], w: usize, h: usize, min_px: usiz
             regions.push((label, pixels));
         }
         // 小於門檻的塊，由小到大逐一併入；併入後鄰居變大，下一輪重新計算
-        let mut small: Vec<&(i16, Vec<usize>)> =
-            regions.iter().filter(|(_, px)| px.len() < min_px).collect();
+        let mut small: Vec<&(i16, Vec<usize>)> = regions
+            .iter()
+            .filter(|(_, px)| px.len() < limit(px))
+            .collect();
         if small.is_empty() {
             return;
         }

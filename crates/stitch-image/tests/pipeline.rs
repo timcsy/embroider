@@ -418,3 +418,26 @@ fn 淡薄荷綠的葉子配成綠色系而不是灰色() {
         r.plan.colors[0].name
     );
 }
+
+/// 同樣大小的零碎小點：在畫面中央、對比強的要保留；在角落、不顯眼的就當雜訊去掉。
+#[test]
+fn 角落不顯眼的小點被去掉_中央的小點保留() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(97, 97, 102, 101, BLACK);
+    img.rect(5, 5, 10, 9, [240, 200, 90]);
+    let r = build_image_preview(&request(&img, 3, 30, 600.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let names: Vec<&str> = r.plan.colors.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["黑色"], "角落的黃點應被去掉：{names:?}");
+}
+
+/// 反過來：角落的點如果夠大，仍然要保留（不重要不等於不要）。
+#[test]
+fn 角落夠大的色塊仍然保留() {
+    let mut img = Img::filled(200, 200, WHITE);
+    img.rect(97, 97, 103, 103, BLACK);
+    img.rect(5, 5, 45, 45, [240, 200, 90]);
+    let r = build_image_preview(&request(&img, 3, 30, 600.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    assert_eq!(r.plan.colors.len(), 2, "{:?}", r.plan.colors);
+}

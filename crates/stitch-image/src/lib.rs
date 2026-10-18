@@ -3,6 +3,7 @@
 pub mod color;
 mod pipeline;
 pub mod quantize;
+pub mod saliency;
 pub mod smooth;
 pub mod trace;
 

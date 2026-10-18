@@ -1,7 +1,8 @@
 use crate::color::{delta, lab, Lab, Rgb};
 use crate::quantize::quantize;
+use crate::saliency::importance_map;
 use crate::smooth::edge_preserving_smooth;
-use crate::trace::{label_polygon, majority_filter, remove_small_regions};
+use crate::trace::{label_polygon, majority_filter, remove_small_regions_by};
 use serde::{Deserialize, Serialize};
 use stitch_core::hoop::Hoop;
 use stitch_core::palette::threads;
@@ -21,6 +22,11 @@ const NEAR_BACKGROUND: f64 = 20.0;
 const MERGE_DELTA: f64 = 12.0;
 /// 配色時亮度差的權重（色相與飽和度的差是 1）。
 const LIGHTNESS_WEIGHT: f64 = 0.25;
+/// 小色塊的刪除門檻倍率：最重要的地方是基準的一半，最不重要的地方放大到這麼多倍
+const IMPORTANT_FACTOR: f64 = 0.5;
+const UNIMPORTANT_FACTOR: f64 = 3.0;
+/// 平均重要性到這個值就算「最重要」（實際圖片很少整塊都接近 1）
+const IMPORTANT_AT: f64 = 0.5;
 /// 跟背景的色差大到這個程度的顏色，細的部分多半是刻意畫的線條或字，不是邊緣的過渡
 const STRONG_CONTRAST: f64 = 45.0;
 const DARK_LINE_L: f64 = 50.0;
@@ -223,6 +229,8 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         return blocked("bad_image", "這張圖打不開。", "請換一張圖，或重新選一次。");
     }
 
+    // 人會注意的地方（中央、對比強、顯眼）細節多留，不顯眼的角落零碎多去
+    let importance = importance_map(&rgba, w, h);
     // 先保邊平滑：同一個色塊的顏色變一致，分群出來的區域才大而完整，不會碎成一堆小點
     let rgba = edge_preserving_smooth(&rgba, w, h, 20 + (simplify * 0.6) as u32);
     let q = match quantize(&rgba, w, h, req.color_count) {
@@ -285,7 +293,13 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     // 比最小筆畫還小的零碎色塊併入周圍（以實際大小換算成像素數）
     let px_len =
         req.settings.min_stroke_width * (1.0 + simplify / 50.0) / (req.size / w.max(h) as f64);
-    remove_small_regions(&mut labels, w, h, (px_len * px_len).round() as usize);
+    let base_px = px_len * px_len;
+    remove_small_regions_by(&mut labels, w, h, |px| {
+        let imp = px.iter().map(|&p| importance[p]).sum::<f64>() / px.len() as f64;
+        let factor = IMPORTANT_FACTOR
+            + (UNIMPORTANT_FACTOR - IMPORTANT_FACTOR) * (1.0 - (imp / IMPORTANT_AT).min(1.0));
+        (base_px * factor).round() as usize
+    });
 
     // 逐色轉成多邊形，換成實際大小（0.1mm），再依簡化程度平滑、合併過細的部分
     let scale = req.size / w.max(h) as f64;

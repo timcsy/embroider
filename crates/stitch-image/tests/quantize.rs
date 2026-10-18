@@ -155,3 +155,12 @@ fn 建議的顏色數_照片這種漸層很多的圖不給太多色() {
     let k = suggest_color_count(&img.rgba, img.w, img.h);
     assert!(k <= 4, "漸層圖建議了 {k} 色，繡出來會是一堆色塊");
 }
+
+#[test]
+fn 建議的顏色數_白底上顏色很多但每色面積很小的插畫要給足夠的色() {
+    // 感恩節插畫：白底占了大半，字、葉、花、南瓜每色都只佔不到 2%。
+    // 比例要以「圖案本身」算，不是整張圖（白底不算）。
+    let rgba = std::fs::read("tests/fixtures/thanks-256.rgba").unwrap();
+    let k = suggest_color_count(&rgba, 256, 171);
+    assert!(k >= 7, "只建議了 {k} 色，葉子、樹枝、花都會擠成同一色");
+}

@@ -180,23 +180,58 @@ pub fn quantize(rgba: &[u8], w: usize, h: usize, k: usize) -> Result<Quantized, 
 const SUGGEST_MIN_SHARE: f64 = 0.003;
 /// 與已選顏色的色差小於這個值，就算同一種顏色（邊緣的漸層過渡色會落在這個範圍內）。
 const SUGGEST_DISTINCT: f64 = 22.0;
+/// 與背景色差小於這個值的像素不列入建議（背景與它邊緣的過渡色）。
+const SUGGEST_BACKGROUND: f64 = 20.0;
+
+/// 圖片四邊最常出現的顏色，且至少占邊緣一半以上才算背景；否則回傳 `None`。
+fn border_background(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    bin_of: &impl Fn(&[u8]) -> Rgb,
+) -> Option<Lab> {
+    let mut counts: BTreeMap<Rgb, u32> = BTreeMap::new();
+    let mut total = 0u32;
+    for y in 0..h {
+        for x in 0..w {
+            if x != 0 && y != 0 && x != w - 1 && y != h - 1 {
+                continue;
+            }
+            let px = &rgba[(y * w + x) * 4..(y * w + x) * 4 + 4];
+            if px[3] >= OPAQUE_ALPHA {
+                *counts.entry(bin_of(px)).or_insert(0) += 1;
+                total += 1;
+            }
+        }
+    }
+    let (color, n) = counts
+        .into_iter()
+        .max_by_key(|&(c, n)| (n, std::cmp::Reverse(c)))?;
+    (n * 2 >= total).then(|| lab(color))
+}
 
 /// 依圖片內容建議顏色數：由最常出現的顏色開始，依序找「跟已選的顏色明顯不同」的顏色，
-/// 找得到幾個就是幾色，限制在 2 到 8 之間。
+/// 找得到幾個就是幾色，限制在 2 到 10 之間。
 /// 不用面積門檻：卡通圖的深色輪廓線面積很小（常不到 2%），卻是圖案分明的關鍵。
 pub fn suggest_color_count(rgba: &[u8], w: usize, h: usize) -> usize {
     if check_size(rgba, w, h).is_err() {
         return MIN_COLORS;
     }
     // 先把相近的顏色歸成一格再算：JPEG 圖的每個顏色都帶雜訊，同一個輪廓的像素會散成很多種
+    let bin = |v: u8| (v & 0xF8) | 0x04;
+    let bin_of = |px: &[u8]| [bin(px[0]), bin(px[1]), bin(px[2])];
+    // 背景（邊緣最多的顏色，例如白底）不算：比例要以圖案本身計算，否則白底占了大半，
+    // 其他每種顏色都顯得太少而被當成雜訊
+    let background = border_background(rgba, w, h, &bin_of);
     let mut hist: BTreeMap<Rgb, u32> = BTreeMap::new();
     let mut opaque = 0u32;
     for px in rgba.chunks_exact(4) {
         if px[3] >= OPAQUE_ALPHA {
-            let bin = |v: u8| (v & 0xF8) | 0x04;
-            *hist
-                .entry([bin(px[0]), bin(px[1]), bin(px[2])])
-                .or_insert(0) += 1;
+            let b = bin_of(px);
+            if background.is_some_and(|bg| delta(lab(b), bg) < SUGGEST_BACKGROUND) {
+                continue;
+            }
+            *hist.entry(b).or_insert(0) += 1;
             opaque += 1;
         }
     }
@@ -231,4 +266,4 @@ pub fn suggest_color_count(rgba: &[u8], w: usize, h: usize) -> usize {
     (chosen.len() + 1).clamp(MIN_COLORS, MAX_SUGGESTED)
 }
 
-const MAX_SUGGESTED: usize = 8;
+const MAX_SUGGESTED: usize = 10;

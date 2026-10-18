@@ -10,7 +10,7 @@ use stitch_core::{ThreadColor, UserMessage};
 use stitch_gen::design::{build_plan, ColoredShape, PreviewResult, Settings};
 
 /// 處理時圖片長邊最多幾像素（再大的先縮小，速度與品質都夠用）。
-const MAX_SIDE: usize = 256;
+const MAX_SIDE: usize = 512;
 /// 平均色差超過這個值，代表漸層很多（像照片），效果有限。
 const PHOTO_ERROR: f64 = 10.0;
 /// 簡化與平滑後，被去掉的面積超過這個比例就說明。

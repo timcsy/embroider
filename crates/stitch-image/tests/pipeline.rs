@@ -136,7 +136,7 @@ fn 太細的線條改走單線平針而不是消失() {
 }
 
 #[test]
-fn 零碎物件被去掉時說明有簡化() {
+fn 細節太多被大量去掉時建議換大框或圈出想繡的部分() {
     let mut img = Img::filled(256, 256, WHITE);
     img.rect(100, 100, 156, 156, RED);
     for gy in 0..9 {
@@ -149,8 +149,21 @@ fn 零碎物件被去掉時說明有簡化() {
         }
     }
     let r = build_image_preview(&request(&img, 3, 30, 1200.0, "b70-large"));
+    let m = r
+        .adjustments
+        .iter()
+        .find(|m| m.code == "too_detailed")
+        .unwrap_or_else(|| panic!("{:?}", r.adjustments));
+    let hint = m.hint.clone().unwrap_or_default();
+    assert!(hint.contains("框") && hint.contains("圈"), "{hint}");
+}
+
+#[test]
+fn 乾淨的簡單圖案不會被說細節太多() {
+    let img = logo(96);
+    let r = build_image_preview(&request(&img, 4, 30, 600.0, "b70-medium"));
     assert!(
-        r.adjustments.iter().any(|m| m.code == "simplified"),
+        r.adjustments.iter().all(|m| m.code != "too_detailed"),
         "{:?}",
         r.adjustments
     );

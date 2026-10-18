@@ -16,6 +16,8 @@ const MAX_SIDE: usize = 512;
 /// 平均色差超過這個值，代表漸層很多（像照片），效果有限。
 const PHOTO_ERROR: f64 = 10.0;
 /// 簡化與平滑後，被去掉的面積超過這個比例就說明。
+/// 圖案面積被去掉超過這個比例，就說「細節太多」並建議換框或圈範圍
+const TOO_DETAILED: f64 = 0.15;
 const SIMPLIFIED_NOTE: f64 = 0.03;
 /// 與背景色差小於這個值的顏色，視為背景的一部分。
 const NEAR_BACKGROUND: f64 = 20.0;
@@ -452,10 +454,17 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         ));
     }
     let lost = 1.0 - area_px / before as f64;
-    if lost.abs() > SIMPLIFIED_NOTE {
+    if lost > TOO_DETAILED {
+        // 大量細節被去掉：多半是圖太細、框太小。讓使用者知道原因與兩種解法
+        notes.push(UserMessage::new(
+            "too_detailed",
+            "這張圖的細節很多，在這個大小下繡不出來，已幫你去掉不少。",
+            Some("可以換大一點的框，或用手指在圖上圈出最想繡的部分。"),
+        ));
+    } else if lost.abs() > SIMPLIFIED_NOTE {
         notes.push(UserMessage::new(
             "simplified",
-            "有些地方太細，繡出來會糊，已幫你加粗、合併或去掉了。",
+            "有些地方太細，繡出來會糊，已幫你合併或去掉了。",
             Some("想保留更多細節，可以把「簡化程度」調低，或讓圖片大一點。"),
         ));
     }

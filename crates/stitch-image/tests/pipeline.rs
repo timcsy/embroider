@@ -342,3 +342,29 @@ fn 巧克力蛋糕照片配色是咖啡色系不出現灰色() {
     assert!(!names.contains(&"灰色"), "k={k} 出現灰色：{names:?}");
     assert!(names.len() <= 5, "顏色太多：{names:?}");
 }
+
+/// 相鄰的兩個色塊，下層要稍微延伸到上層底下，否則繡出來兩色之間會露出底布的縫。
+#[test]
+fn 相鄰色塊的針跡範圍互相重疊沒有縫() {
+    let mut img = Img::filled(100, 100, WHITE);
+    img.rect(10, 20, 50, 80, RED);
+    img.rect(50, 20, 90, 80, BLUE);
+    let r = build_image_preview(&request(&img, 3, 30, 400.0, "b70-medium"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let mut color = 0usize;
+    let mut bounds = vec![(i32::MAX, i32::MIN); r.plan.colors.len()];
+    for s in &r.plan.stitches {
+        if s.kind == StitchKind::ColorChange {
+            color += 1;
+        }
+        if s.kind == StitchKind::Stitch {
+            let b = &mut bounds[color];
+            *b = (b.0.min(s.x), b.1.max(s.x));
+        }
+    }
+    let idx = |name: &str| r.plan.colors.iter().position(|c| c.name == name).unwrap();
+    let red = bounds[idx("正紅")];
+    let blue = bounds[idx("寶藍")];
+    // 單位 0.1mm；兩色的交界在 x=0，兩邊都要越過交界至少 0.2mm
+    assert!(red.1 >= 2 && blue.0 <= -2, "紅 {:?} 藍 {:?}", red, blue);
+}

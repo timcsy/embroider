@@ -263,11 +263,14 @@ pub fn build_plan_with_blends(
         angle_deg: s.fill_angle,
         y_offset: 0.0,
     };
+    // 填充先繡、細線與輪廓（平針、緞面）最後繡：線壓在最上面，邊緣才清楚（Brother US8473090B2「銳利的部分最後繡」）
     let mut blocks = Vec::new();
+    let mut line_blocks = Vec::new();
     for (shape, blend) in owned.iter().zip(&blend_of) {
         let scaled = shape.polygon.scale(final_scale);
         // 先把每一塊相連的形狀各自繡成一組針跡，再依位置排順序（減少跳針）
         let mut items: Vec<(Polygon, RunSets)> = Vec::new();
+        let mut line_items: Vec<(Polygon, RunSets)> = Vec::new();
         let bases = if s.shape_aware {
             scaled.shapes()
         } else {
@@ -289,7 +292,7 @@ pub fn build_plan_with_blends(
                         runs.extend(satin(line, s.pull_comp.max(0.0)));
                     }
                 }
-                items.push((base, (runs, Vec::new(), Vec::new())));
+                line_items.push((base, (runs, Vec::new(), Vec::new())));
                 continue;
             }
             let expanded = base.offset(s.pull_comp.max(0.0));
@@ -350,10 +353,23 @@ pub fn build_plan_with_blends(
             first.extend(a);
             second.extend(b);
         }
-        blocks.push(ColorBlock {
-            color: shape.color.clone(),
-            runs: plain,
-        });
+        // 細線另成一塊，排在所有填充之後
+        let line_runs: Vec<Run> = order_nearest(line_items)
+            .into_iter()
+            .flat_map(|(p, _, _)| p)
+            .collect();
+        if !line_runs.is_empty() {
+            line_blocks.push(ColorBlock {
+                color: shape.color.clone(),
+                runs: line_runs,
+            });
+        }
+        if !plain.is_empty() {
+            blocks.push(ColorBlock {
+                color: shape.color.clone(),
+                runs: plain,
+            });
+        }
         if let Some([a, b]) = blend {
             for (color, runs) in [(a, first), (b, second)] {
                 if !runs.is_empty() {
@@ -366,6 +382,7 @@ pub fn build_plan_with_blends(
         }
     }
 
+    blocks.extend(line_blocks);
     let travel = TravelParams {
         jump_threshold: s.jump_threshold,
         trim_threshold: s.trim_threshold,

@@ -349,3 +349,28 @@ fn 關掉輪廓填充時圓形和原本一樣() {
     );
     assert_eq!(a.plan, b.plan);
 }
+
+#[test]
+fn 細線與輪廓排在填充之後繡_壓在最上面() {
+    // 輸入順序故意把細的黑線放在前面：不管面積與輸入順序，線都要等填充繡完才繡
+    let black_line = ColoredShape {
+        polygon: centered_rect(300.0, 10.0),
+        color: ThreadColor::new(0, 0, 0, "黑"),
+    };
+    let red_fill = ColoredShape {
+        polygon: centered_rect(200.0, 200.0),
+        color: ThreadColor::new(200, 30, 40, "紅"),
+    };
+    let r = build_plan(
+        &[black_line, red_fill],
+        300.0,
+        &hoop("b70-large"),
+        &Settings {
+            shape_aware: true,
+            ..Settings::default()
+        },
+    );
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let names: Vec<&str> = r.plan.colors.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["紅", "黑"], "線要排在填充之後：{names:?}");
+}

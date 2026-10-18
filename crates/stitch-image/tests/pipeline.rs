@@ -441,3 +441,30 @@ fn 角落夠大的色塊仍然保留() {
     assert!(r.blocked.is_none(), "{:?}", r.blocked);
     assert_eq!(r.plan.colors.len(), 2, "{:?}", r.plan.colors);
 }
+
+/// 零碎的小物件太多時，圖看起來會亂：要有上限，只留最重要的。
+#[test]
+fn 一堆零碎小點會限制物件總數() {
+    let mut img = Img::filled(256, 256, WHITE);
+    img.rect(100, 100, 156, 156, RED); // 主體
+    for gy in 0..9 {
+        for gx in 0..9 {
+            let (x, y) = (10 + gx * 26, 10 + gy * 26);
+            if (90..170).contains(&x) && (90..170).contains(&y) {
+                continue;
+            }
+            img.rect(x, y, x + 9, y + 9, BLUE);
+        }
+    }
+    let r = build_image_preview(&request(&img, 3, 30, 1200.0, "b70-large"));
+    assert!(r.blocked.is_none(), "{:?}", r.blocked);
+    let trims = r
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Trim)
+        .count();
+    assert!(trims <= 50, "留下太多零碎物件：剪線 {trims} 次");
+    // 主體不能被當成零碎去掉
+    assert!(r.plan.colors.iter().any(|c| c.name == "正紅"));
+}

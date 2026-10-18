@@ -9,6 +9,8 @@
   import { downloadFiles, nextSequence } from '../lib/export'
   import { listRecent, removeRecent, saveRecent, type SavedDesign } from '../lib/designs'
   import { fitImageSizeCm } from '../lib/fitSize'
+  import { cropRgba, type CropRect } from '../lib/crop'
+  import ImageCrop from '../components/ImageCrop.svelte'
   import { dataUrlToBytes, fileFromBytes, loadImage, stemOf, type LoadedImage } from '../lib/imageInput'
   import { formatsToExport, type Prefs } from '../lib/prefs'
   import { canShareFiles, shareFiles } from '../lib/share'
@@ -99,6 +101,16 @@
 
   // 選到的圖片（像素很大，不放進復原紀錄；整份替換，用 raw）
   let image = $state.raw<LoadedImage | null>(null)
+  // 圈出來要繡的範圍（沒有就是整張圖）；跟圖片一樣不放進復原紀錄
+  let crop = $state<CropRect | null>(null)
+  const source = $derived(image ? cropRgba(image.rgba, image.width, image.height, crop) : null)
+  function setCrop(r: CropRect | null) {
+    crop = r
+    if (image) {
+      const c = cropRgba(image.rgba, image.width, image.height, r)
+      update({ imageSizeCm: fitImageSizeCm(hoop, c.width, c.height) }, 'imageSize')
+    }
+  }
   let imageProblem = $state<UserMessage | null>(null)
   let loadingImage = $state(false)
   let fileInput = $state<HTMLInputElement>()
@@ -139,6 +151,7 @@
         return
       }
       image = r
+      crop = null
     }
     const p = d.params as Partial<Design>
     const hoopOk = hoops.some((h) => h.id === p.hoopId)
@@ -167,6 +180,7 @@
         return
       }
       image = r
+      crop = null
       const k = await client.suggestColorCount(r.rgba, r.width, r.height)
       design = {
         ...design,
@@ -186,7 +200,7 @@
   $effect(() => {
     const d = { ...design }
     const h = hoop
-    const img = image
+    const img = source
     const empty = d.mode === 'text' ? d.text.trim().length === 0 : img === null
     if (empty) {
       preview = null
@@ -342,7 +356,7 @@
       <input type="file" accept="image/*" hidden bind:this={fileInput} onchange={onFile} data-testid="file-input" />
       <input type="file" accept="image/*" capture="environment" hidden bind:this={cameraInput} onchange={onFile} />
       {#if image}
-        <img class="thumb" src={image.previewUrl} alt={image.name} />
+        <ImageCrop src={image.previewUrl} alt={image.name} rect={crop} onchange={setCrop} />
       {/if}
       <div class="pick">
         <button class="secondary" onclick={() => fileInput?.click()} data-testid="choose-image">
@@ -545,7 +559,6 @@
   .tabs { display: flex; gap: 8px; margin: 10px 0 0; }
   .tabs button { flex: 1; min-height: 52px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
   .tabs button.on { border-color: var(--accent); background: #fdecec; }
-  .thumb { display: block; max-width: 100%; max-height: 160px; margin: 8px auto; border-radius: 8px; border: 1px solid var(--line); }
   .pick { display: flex; gap: 10px; }
   .pick .secondary { flex: 1; }
   .end { font-size: 0.8em; color: var(--muted); min-width: 4.2em; text-align: center; }

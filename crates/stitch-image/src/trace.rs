@@ -52,6 +52,78 @@ pub fn remove_small_regions(labels: &mut [i16], w: usize, h: usize, min_px: usiz
     remove_small_regions_by(labels, w, h, |_| min_px);
 }
 
+/// 所有連通色塊（4 連通）：(標籤, 像素編號)。包含標籤 -1 的背景。
+pub fn connected_regions(labels: &[i16], w: usize, h: usize) -> Vec<(i16, Vec<usize>)> {
+    let mut seen = vec![false; w * h];
+    let mut regions: Vec<(i16, Vec<usize>)> = Vec::new();
+    for start in 0..w * h {
+        if seen[start] {
+            continue;
+        }
+        let label = labels[start];
+        let mut stack = vec![start];
+        let mut pixels = Vec::new();
+        seen[start] = true;
+        while let Some(p) = stack.pop() {
+            pixels.push(p);
+            let (x, y) = (p % w, p / w);
+            let mut push = |q: usize| {
+                if !seen[q] && labels[q] == label {
+                    seen[q] = true;
+                    stack.push(q);
+                }
+            };
+            if x > 0 {
+                push(p - 1);
+            }
+            if x + 1 < w {
+                push(p + 1);
+            }
+            if y > 0 {
+                push(p - w);
+            }
+            if y + 1 < h {
+                push(p + w);
+            }
+        }
+        regions.push((label, pixels));
+    }
+    regions
+}
+
+/// 物件數上限：圖案（標籤 ≥ 0）的連通色塊超過 `keep` 個時，只留 `score` 最高的 `keep` 個，
+/// 其餘併入周圍的顏色（或背景）。零碎的小物件太多，繡出來會亂、剪線與換針也多。
+pub fn drop_to_budget(
+    labels: &mut [i16],
+    w: usize,
+    h: usize,
+    keep: usize,
+    score: impl Fn(&[usize]) -> f64,
+) {
+    let mut ranked: Vec<(f64, usize, Vec<usize>)> = connected_regions(labels, w, h)
+        .into_iter()
+        .filter(|(l, _)| *l >= 0)
+        .map(|(_, px)| (score(&px), px[0], px))
+        .collect();
+    if ranked.len() <= keep {
+        return;
+    }
+    ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
+    let mut dropped = vec![false; w * h];
+    for (_, _, px) in ranked.iter().skip(keep) {
+        for &p in px {
+            dropped[p] = true;
+        }
+    }
+    remove_small_regions_by(labels, w, h, |px| {
+        if px.iter().all(|&p| dropped[p]) {
+            usize::MAX
+        } else {
+            0
+        }
+    });
+}
+
 /// 同上，但每個色塊的門檻由 `limit` 依它的像素位置決定（例如重要的地方門檻低、不重要的地方門檻高）。
 pub fn remove_small_regions_by(
     labels: &mut [i16],
@@ -60,41 +132,7 @@ pub fn remove_small_regions_by(
     limit: impl Fn(&[usize]) -> usize,
 ) {
     loop {
-        // 找出所有連通色塊（4 連通）
-        let mut seen = vec![false; w * h];
-        let mut regions: Vec<(i16, Vec<usize>)> = Vec::new();
-        for start in 0..w * h {
-            if seen[start] {
-                continue;
-            }
-            let label = labels[start];
-            let mut stack = vec![start];
-            let mut pixels = Vec::new();
-            seen[start] = true;
-            while let Some(p) = stack.pop() {
-                pixels.push(p);
-                let (x, y) = (p % w, p / w);
-                let mut push = |q: usize| {
-                    if !seen[q] && labels[q] == label {
-                        seen[q] = true;
-                        stack.push(q);
-                    }
-                };
-                if x > 0 {
-                    push(p - 1);
-                }
-                if x + 1 < w {
-                    push(p + 1);
-                }
-                if y > 0 {
-                    push(p - w);
-                }
-                if y + 1 < h {
-                    push(p + w);
-                }
-            }
-            regions.push((label, pixels));
-        }
+        let regions = connected_regions(labels, w, h);
         // 小於門檻的塊，由小到大逐一併入；併入後鄰居變大，下一輪重新計算
         let mut small: Vec<&(i16, Vec<usize>)> = regions
             .iter()

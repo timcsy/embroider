@@ -2,7 +2,7 @@ use crate::color::{delta, lab, Lab, Rgb};
 use crate::quantize::quantize;
 use crate::saliency::importance_map;
 use crate::smooth::edge_preserving_smooth;
-use crate::trace::{label_polygon, majority_filter, remove_small_regions_by};
+use crate::trace::{drop_to_budget, label_polygon, majority_filter, remove_small_regions_by};
 use serde::{Deserialize, Serialize};
 use stitch_core::hoop::Hoop;
 use stitch_core::palette::threads;
@@ -27,6 +27,9 @@ const IMPORTANT_FACTOR: f64 = 0.5;
 const UNIMPORTANT_FACTOR: f64 = 3.0;
 /// 平均重要性到這個值就算「最重要」（實際圖片很少整塊都接近 1）
 const IMPORTANT_AT: f64 = 0.5;
+/// 物件數上限的範圍（簡化程度 100 → 最少、0 → 最多）
+const OBJECTS_MIN: usize = 12;
+const OBJECTS_MAX: usize = 60;
 /// 跟背景的色差大到這個程度的顏色，細的部分多半是刻意畫的線條或字，不是邊緣的過渡
 const STRONG_CONTRAST: f64 = 45.0;
 const DARK_LINE_L: f64 = 50.0;
@@ -221,6 +224,12 @@ fn nearest_thread(c: Rgb, palette: &[ThreadColor]) -> ThreadColor {
         .clone()
 }
 
+/// 最多留幾個獨立的物件。簡化程度越高留越少：30 → 約 46 個，100 → 12 個。
+fn object_budget(simplify: f64) -> usize {
+    (OBJECTS_MIN as f64 + (OBJECTS_MAX - OBJECTS_MIN) as f64 * (1.0 - simplify / 100.0)).round()
+        as usize
+}
+
 /// 圖片 → 針跡計畫。任何無法輸出的情況都以 `blocked` 回報白話原因。
 pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     let simplify = req.simplify.min(100) as f64;
@@ -299,6 +308,11 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         let factor = IMPORTANT_FACTOR
             + (UNIMPORTANT_FACTOR - IMPORTANT_FACTOR) * (1.0 - (imp / IMPORTANT_AT).min(1.0));
         (base_px * factor).round() as usize
+    });
+    // 物件太多會亂：超過上限就只留最重要的（面積大、位置顯眼的），其餘併入周圍
+    drop_to_budget(&mut labels, w, h, object_budget(simplify), |px| {
+        let imp = px.iter().map(|&p| importance[p]).sum::<f64>() / px.len() as f64;
+        (px.len() as f64).sqrt() * (0.05 + imp).powi(2)
     });
 
     // 逐色轉成多邊形，換成實際大小（0.1mm），再依簡化程度平滑、合併過細的部分

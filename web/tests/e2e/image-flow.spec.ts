@@ -101,3 +101,45 @@ test('拖動「顏色多寡」：顏色少時合併成較少的線色', async ({
   await page.getByRole('slider', { name: '顏色多寡' }).fill('2')
   await expect.poll(colorCount, { timeout: 60_000 }).toBeLessThan(3)
 })
+
+test('在圖上圈出一部分：只繡框內的，可以還原成整張圖', async ({ page }) => {
+  await openImageTab(page)
+  await page.getByTestId('file-input').setInputFiles(fixture('logo.png'))
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+
+  const colorsSeen = () =>
+    page.getByTestId('preview').evaluate((c: HTMLCanvasElement) => {
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+      let red = 0, blue = 0, green = 0
+      for (let i = 0; i < d.length; i += 4) {
+        const [r, g, b] = [d[i], d[i + 1], d[i + 2]]
+        if (r > 150 && g < 90 && b < 90) red++
+        if (b > 130 && r < 90 && g < 120) blue++
+        if (g > 120 && r < 120 && b < 100) green++
+      }
+      return { red, blue, green }
+    })
+  const before = await colorsSeen()
+  expect(before.blue).toBeGreaterThan(100)
+  expect(before.green).toBeGreaterThan(100)
+
+  // 圖的左上角是紅色方塊：只圈左上四分之一強
+  const area = page.getByTestId('crop-area')
+  const b = (await area.boundingBox())!
+  await page.mouse.move(b.x + b.width * 0.02, b.y + b.height * 0.02)
+  await page.mouse.down()
+  await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.5, { steps: 5 })
+  await page.mouse.up()
+  await expect(page.getByTestId('crop-frame')).toBeVisible()
+  await expect(page.getByTestId('crop-reset')).toBeVisible()
+
+  await expect.poll(async () => (await colorsSeen()).blue, { timeout: 30_000 }).toBeLessThan(20)
+  const cropped = await colorsSeen()
+  expect(cropped.red).toBeGreaterThan(100)
+  expect(cropped.green).toBeLessThan(20)
+
+  // 還原成整張圖
+  await page.getByTestId('crop-reset').click()
+  await expect.poll(async () => (await colorsSeen()).blue, { timeout: 30_000 }).toBeGreaterThan(100)
+  await expect(page.getByTestId('crop-frame')).toHaveCount(0)
+})

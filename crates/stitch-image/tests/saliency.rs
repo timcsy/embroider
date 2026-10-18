@@ -76,3 +76,38 @@ fn 小色塊的刪除門檻可以依位置不同() {
     assert_eq!(labels[7 * w + 5], -1, "左邊的門檻高，應被刪掉");
     assert_eq!(labels[7 * w + 32], 0, "右邊的門檻低，應保留");
 }
+
+#[test]
+fn 物件上限_只留分數最高的幾塊其餘併入周圍() {
+    use stitch_image::trace::drop_to_budget;
+    // 五個方塊，面積不同；只留 2 個，應留下最大的兩個
+    let (w, h) = (60, 12);
+    let mut labels = vec![-1i16; w * h];
+    let sizes = [2usize, 5, 3, 6, 4];
+    for (i, &s) in sizes.iter().enumerate() {
+        for y in 3..3 + s.min(8) {
+            for x in 0..s {
+                labels[y * w + i * 12 + x] = 0;
+            }
+        }
+    }
+    drop_to_budget(&mut labels, w, h, 2, |px| px.len() as f64);
+    let alive = |i: usize| labels[4 * w + i * 12] == 0;
+    assert_eq!(
+        (0..5).filter(|&i| alive(i)).collect::<Vec<_>>(),
+        vec![1, 3],
+        "應只剩面積最大的兩塊"
+    );
+}
+
+#[test]
+fn 物件上限不超過現有數量時不動() {
+    use stitch_image::trace::drop_to_budget;
+    let (w, h) = (20, 10);
+    let mut labels = vec![-1i16; w * h];
+    labels[5 * w + 3] = 0;
+    labels[5 * w + 12] = 0;
+    let before = labels.clone();
+    drop_to_budget(&mut labels, w, h, 5, |px| px.len() as f64);
+    assert_eq!(labels, before);
+}

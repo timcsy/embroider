@@ -1019,8 +1019,7 @@ fn 移動物件_它的針跡層跟著平移同樣的距離() {
             &req(vec![circle("c", 300.0, x, 0.0)], "b70-large"),
             &[],
         );
-        let p = r.layers[0].parts[0].runs[0][0];
-        p
+        r.layers[0].parts[0].runs[0][0]
     };
     let (a, b) = (first(0.0), first(300.0));
     assert!((b[0] - a[0] - 300.0).abs() < 20.0, "{a:?} {b:?}");

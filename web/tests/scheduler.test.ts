@@ -91,10 +91,11 @@ describe('只算最新的（畫布更新）', () => {
     expect(r.busy()).toBe(false)
   })
 
-  it('取消之後再送同樣內容也會重算（鍵被清掉了）', () => {
+  it('取消之後再送同樣內容也會重算（鍵被清掉了）', async () => {
     const started: string[] = []
     const r = createLatestRunner<string>(async (j) => void started.push(j))
     r.submit('a', 'k')
+    await new Promise((x) => setTimeout(x, 0))
     r.cancel()
     r.submit('a', 'k')
     expect(started).toEqual(['a', 'a'])

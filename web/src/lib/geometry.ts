@@ -226,3 +226,32 @@ export function snapMove(moving: Box, others: Box[], safe: { w: number; h: numbe
   const sy = nearest([m.t, (m.t + m.b) / 2, m.b], yLines, range)
   return { dx: sx?.d ?? 0, dy: sy?.d ?? 0, xs: sx ? [sx.at] : [], ys: sy ? [sy.at] : [] }
 }
+
+// ── 拖動中的針跡變形 ──
+
+export interface Placement {
+  x: number
+  y: number
+  scale: number
+  rotation: number
+}
+
+/**
+ * 物件從 `old`（上次算好針跡時的樣子）變成 `now`（現在手指拖到的樣子）：
+ * 回傳把舊針跡的每個點（框座標、已套用整體縮小 `fit`）搬到新位置的函式——以物件中心為中心放大、旋轉，再平移。
+ * 這樣拖動、縮放、旋轉時，針跡立刻跟著動，不必等核心重新計算。沒有舊資料回傳 null。
+ */
+export function layerMap(old: Placement | undefined, now: Placement, fit: number): ((p: [number, number]) => [number, number]) | null {
+  if (!old) return null
+  const c0 = { x: old.x * fit, y: old.y * fit }
+  const c1 = { x: now.x * fit, y: now.y * fit }
+  const k = old.scale > 0 ? now.scale / old.scale : 1
+  const a = ((now.rotation - old.rotation) * Math.PI) / 180
+  const cos = Math.cos(a) * k
+  const sin = Math.sin(a) * k
+  return (p) => {
+    const dx = p[0] - c0.x
+    const dy = p[1] - c0.y
+    return [c1.x + dx * cos - dy * sin, c1.y + dx * sin + dy * cos]
+  }
+}

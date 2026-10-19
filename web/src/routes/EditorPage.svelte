@@ -61,6 +61,7 @@
   } from '../lib/editor'
   import { downloadFiles, nextSequence } from '../lib/export'
   import { applyTemplate, TEMPLATES } from '../lib/templates'
+  import { createLatestRunner } from '../lib/scheduler'
   import { createTips, type TipId } from '../lib/tips'
   import { fitImageSizeCm } from '../lib/fitSize'
   import { FONT_FILES } from '../lib/fonts'
@@ -331,46 +332,56 @@
         ? { min: 2, max: 20, step: 0.5 }
         : { min: 1, max: 15, step: 0.5 }
 
-  // ── 預覽（核心算好之後才更新，期間畫面上的外框跟著手指即時動） ──
+  // ── 預覽 ──
+  // 不加任何等待：沒有在算就馬上開始；正在算的時候又改了，只留最新的一份、算完立刻接著算。
+  // 拖動、縮放、旋轉時，畫布用各物件上一次算好的針跡直接變形，畫面立刻跟著動，不必等結果。
   let result = $state.raw<CompositeResult | null>(null)
+  let computedAt = $state.raw<Record<string, { x: number; y: number; scale: number; rotation: number }>>({})
   let computing = $state(false)
-  let token = 0
+  let epoch = 0
+
+  interface Job {
+    request: ReturnType<typeof toRequest>['request']
+    images: Uint8Array[]
+    snap: Record<string, { x: number; y: number; scale: number; rotation: number }>
+    epoch: number
+  }
+  const runner = createLatestRunner<Job>(async (job) => {
+    // 用到的字型還沒下載就先下載；下載不了（沒網路）的，先用黑體顯示並說明
+    const wanted = [...new Set(job.request.items.flatMap((i) => (i.kind === 'text' ? [i.font_id] : [])))]
+    const ready = await fonts.ensureMany(wanted)
+    const missing = wanted.filter((id) => !ready[id])
+    const req = missing.length
+      ? { ...job.request, items: job.request.items.map((i) => (i.kind === 'text' && missing.includes(i.font_id) ? { ...i, font_id: 'sans' } : i)) }
+      : job.request
+    const r = await client.buildCompositePreview(req, job.images)
+    if (missing.length) {
+      r.preview.adjustments = [
+        ...missing.map((id) => ({ code: 'font_fallback', text: strings.editor.fontFallback(strings.fonts[id as keyof typeof strings.fonts] ?? id), hint: null })),
+        ...r.preview.adjustments,
+      ]
+    }
+    if (job.epoch === epoch) {
+      result = r
+      computedAt = job.snap
+    }
+  })
+  $effect(() => runner.onBusyChange(() => (computing = runner.busy())))
 
   $effect(() => {
     const d = doc
-    const h = hoop
-    const srcs = sources
-    const { request, images } = toRequest(d, h, srcs)
+    const { request, images } = toRequest(d, hoop, sources)
     if (request.items.length === 0) {
+      epoch++
+      runner.cancel()
       result = null
-      computing = false
-      token++
+      computedAt = {}
       return
     }
-    const mine = ++token
-    computing = true
-    const timer = setTimeout(async () => {
-      try {
-        // 用到的字型還沒下載就先下載；下載不了（沒網路）的，先用黑體顯示並說明
-        const wanted = [...new Set(request.items.flatMap((i) => (i.kind === 'text' ? [i.font_id] : [])))]
-        const ready = await fonts.ensureMany(wanted)
-        const missing = wanted.filter((id) => !ready[id])
-        const req = missing.length
-          ? { ...request, items: request.items.map((i) => (i.kind === 'text' && missing.includes(i.font_id) ? { ...i, font_id: 'sans' } : i)) }
-          : request
-        const r = await client.buildCompositePreview(req, images)
-        if (missing.length) {
-          r.preview.adjustments = [
-            ...missing.map((id) => ({ code: 'font_fallback', text: strings.editor.fontFallback(strings.fonts[id as keyof typeof strings.fonts] ?? id), hint: null })),
-            ...r.preview.adjustments,
-          ]
-        }
-        if (mine === token) result = r
-      } finally {
-        if (mine === token) computing = false
-      }
-    }, 120)
-    return () => clearTimeout(timer)
+    // 選了別的東西、換了工具面板，內容沒變就不重算；換了圖片（編號不同）才算
+    const key = JSON.stringify(request) + '|' + d.items.map((i) => (i.kind === 'image' ? i.imageId : '')).join(',')
+    const snap = Object.fromEntries(d.items.map((i) => [i.id, { x: i.x, y: i.y, scale: i.scale, rotation: i.rotation }]))
+    runner.submit({ request, images, snap, epoch }, key)
   })
 
   const preview = $derived(result?.preview ?? null)
@@ -748,6 +759,9 @@
           items={doc.items}
           {infos}
           {fit}
+          layers={result?.layers ?? []}
+          computed={computedAt}
+          stale={computing}
           selectedId={doc.selectedId}
           selectedIds={pickedIds}
           multi={multiMode}
@@ -774,9 +788,6 @@
             <p class="muted" data-testid="size">{sizeText}</p>
           {:else if isEmptyHint}
             <p class="muted">{strings.text.empty}</p>
-          {/if}
-          {#if computing && result}
-            <p class="muted" role="status">{strings.updating}</p>
           {/if}
         </div>
         {#if resumed && doc.items.length > 0}

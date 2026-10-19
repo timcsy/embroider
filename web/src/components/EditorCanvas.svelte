@@ -2,7 +2,7 @@
   // 編輯畫面：下層是繡出來的樣子，上層是可以用手指（或滑鼠）操作的外框。
   // 一根手指拖移物件、拉角改大小、拉上方的圓點轉方向；兩根手指同時縮放與旋轉；
   // 滑鼠滾輪縮放、方向鍵微調。
-  import { drawPreview } from '../lib/draw'
+  import { drawLayers, drawPreview, type LayerDraw } from '../lib/draw'
   import type { EditorItem } from '../lib/editor'
   import {
     fromCanvas,
@@ -10,6 +10,7 @@
     describeGesture,
     hitBox,
     itemBox,
+    layerMap,
     applyZoom,
     clampZoom,
     MAX_ZOOM,
@@ -23,12 +24,13 @@
     topHit,
     zoomAround,
     type Box,
+    type Placement,
     type Pt,
     type Zoom,
   } from '../lib/geometry'
   import { computeView } from '../lib/preview'
   import { strings } from '../lib/strings.zh-TW'
-  import type { Hoop, ItemInfo, StitchPlan } from '../lib/types'
+  import type { Hoop, ItemInfo, ItemLayer, StitchPlan } from '../lib/types'
 
   let {
     plan,
@@ -40,6 +42,9 @@
     selectedIds = [],
     multi = false,
     label,
+    layers = [],
+    computed = {},
+    stale = false,
     fill = false,
     drawing = false,
     brush = { css: '#b3282d', units: 25 },
@@ -74,6 +79,12 @@
     onLayer?: (id: string) => void
     onMarquee?: (ids: string[], additive: boolean) => void
     /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
+    /** 每個物件各自的針跡，算新的結果中途拿來把舊的針跡即時變形 */
+    layers?: ItemLayer[]
+    /** 這些針跡是在物件什麼狀態下算出來的 */
+    computed?: Record<string, Placement>
+    /** 正在重新計算 */
+    stale?: boolean
     /** 寬螢幕（畫布在左、工具在右）：畫布盡量放大；窄螢幕要留位置給下面的工具 */
     fill?: boolean
     drawing?: boolean
@@ -115,7 +126,21 @@
     canvas.width = Math.round(width * dpr)
     canvas.height = Math.round(height * dpr)
     const ctx = canvas.getContext('2d')
-    if (ctx) drawPreview(ctx, plan, hoop, width, height, dpr, undefined, view)
+    if (!ctx) return
+    // 重新計算的途中（或物件已經被拖到別的位置、結果還沒回來）：用各物件的舊針跡直接變形，畫面立刻跟著手指走
+    const moved = items.some((it) => {
+      const o = computed[it.id]
+      return o && (o.x !== it.x || o.y !== it.y || o.scale !== it.scale || o.rotation !== it.rotation)
+    })
+    if (layers.length > 0 && (stale || moved)) {
+      const draw: LayerDraw[] = layers.flatMap((l) => {
+        const it = items.find((i) => i.id === l.id)
+        return it ? [{ parts: l.parts, map: layerMap(computed[l.id], it, fit) }] : []
+      })
+      drawLayers(ctx, draw, hoop, width, height, dpr, view)
+    } else {
+      drawPreview(ctx, plan, hoop, width, height, dpr, undefined, view)
+    }
   })
 
   const HANDLE_R = 11 // 看得到的把手半徑（像素）
@@ -497,6 +522,7 @@
 
 <div class="area" bind:clientWidth={avail} bind:this={area}>
   <div class="stage" style="width:{width}px;height:{height}px" role="img" aria-label={label}>
+    {#if stale}<div class="busy" aria-hidden="true" data-testid="busy"></div>{/if}
     <canvas bind:this={canvas} style="width:{width}px;height:{height}px" data-testid="preview"></canvas>
     {#if mini && selected}
       <div class="mini" style="left:{mini.left}px;top:{mini.top}px" role="toolbar" aria-label={strings.editor.miniBar} data-testid="mini-bar">
@@ -596,6 +622,9 @@
   .area { width: 100%; display: flex; justify-content: center; }
   .stage { position: relative; touch-action: none; }
   canvas { display: block; border-radius: 12px; }
+  /* 計算超過一下子才出現的細細進度條，放在畫布上緣，不會讓版面跳動 */
+  .busy { position: absolute; left: 12px; right: 12px; top: 0; height: 3px; z-index: 3; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: slide 0.9s linear infinite; animation-delay: 0.25s; opacity: 0; animation-fill-mode: backwards; }
+  @keyframes slide { 0% { background-position: -40% 0; opacity: 1 } 100% { background-position: 140% 0; opacity: 1 } }
   .overlay { position: absolute; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; outline-offset: -3px; }
   .box { fill: transparent; stroke: rgba(70, 60, 50, 0.28); stroke-width: 1; stroke-dasharray: 4 4; }
   .box.on { stroke: #1a73e8; stroke-width: 2; stroke-dasharray: none; fill: rgba(26, 115, 232, 0.06); }

@@ -174,4 +174,17 @@ export interface ItemInfo {
 export interface CompositeResult {
   preview: PreviewResult
   items: ItemInfo[]
+  layers: ItemLayer[]
+}
+
+/** 一個物件的一種線色的針跡（最後的位置與大小，單位 0.1mm）。 */
+export interface LayerPart {
+  color: ThreadColor
+  runs: [number, number][][]
+}
+
+/** 每個物件各自的針跡，依上下層順序；編輯畫面在拖動、縮放、旋轉的計算中途拿來即時變形。 */
+export interface ItemLayer {
+  id: string
+  parts: LayerPart[]
 }

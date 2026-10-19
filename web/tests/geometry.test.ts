@@ -261,3 +261,45 @@ describe('對齊參考線與吸附', () => {
     expect(s.dx).toBeCloseTo(1)
   })
 })
+
+import { layerMap } from '../src/lib/geometry'
+
+describe('拖動中的針跡變形（用舊的針跡，不等重新計算）', () => {
+  const old = { x: 100, y: 50, scale: 1, rotation: 0 }
+
+  it('什麼都沒變：原樣', () => {
+    const f = layerMap(old, old, 1)
+    expect(f!([10, 20])).toEqual([10, 20])
+  })
+
+  it('移動：每個點平移同樣的距離（乘上整體縮小的倍率）', () => {
+    const f = layerMap(old, { ...old, x: 130, y: 20 }, 0.5)
+    expect(f!([10, 20])).toEqual([25, 5])
+  })
+
+  it('放大兩倍：以物件中心為中心放大', () => {
+    // 物件中心在 (100,50)*1；中心上的點不動，離中心 10 的點變成離中心 20
+    const f = layerMap(old, { ...old, scale: 2 }, 1)
+    expect(f!([100, 50])).toEqual([100, 50])
+    expect(f!([110, 50])[0]).toBeCloseTo(120)
+  })
+
+  it('旋轉 90 度（順時針）：以物件中心為中心', () => {
+    const f = layerMap(old, { ...old, rotation: 90 }, 1)
+    const p = f!([110, 50]) // 在中心右邊 10 → 轉到中心下方 10
+    expect(p[0]).toBeCloseTo(100)
+    expect(p[1]).toBeCloseTo(60)
+  })
+
+  it('移動加放大加旋轉一起', () => {
+    const f = layerMap(old, { x: 200, y: 50, scale: 2, rotation: 90 }, 1)
+    const p = f!([110, 50])
+    // 舊中心 (100,50) → 新中心 (200,50)；右邊 10 的點：放大成 20、轉到下方 → (200, 70)
+    expect(p[0]).toBeCloseTo(200)
+    expect(p[1]).toBeCloseTo(70)
+  })
+
+  it('沒有舊資料（新加的物件）：回傳 null，不變形', () => {
+    expect(layerMap(undefined, old, 1)).toBeNull()
+  })
+})

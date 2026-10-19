@@ -36,7 +36,8 @@ function time<T>(f: () => T): [T, number] {
   return [result, best]
 }
 
-describe('效能預算', () => {
+// 其他測試檔同時在跑時，量到的時間會被拖慢（已出現過多次誤報）：失敗時重試，真的變慢三次都會失敗
+describe('效能預算', { retry: 2 }, () => {
   beforeAll(() => {
     initCoreSync(readFileSync(resolve(process.cwd(), 'src/lib/wasm/stitch_wasm_bg.wasm')))
     for (const [id, file] of [

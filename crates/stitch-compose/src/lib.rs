@@ -569,6 +569,24 @@ fn warp_arc(poly: &Polygon, sweep_deg: f64) -> Polygon {
     }
 }
 
+/// 文字外框被別的物件蓋住超過這個比例，就提醒。
+const OVERLAP_NOTE: f64 = 0.25;
+
+fn text_overlaps(spans: &[(bool, [f64; 4])]) -> bool {
+    spans.iter().enumerate().any(|(i, (is_text, t))| {
+        *is_text && {
+            let area = ((t[2] - t[0]) * (t[3] - t[1])).max(1.0);
+            spans.iter().enumerate().any(|(j, (_, o))| {
+                j != i && {
+                    let w = (t[2].min(o[2]) - t[0].max(o[0])).max(0.0);
+                    let h = (t[3].min(o[3]) - t[1].max(o[1])).max(0.0);
+                    w * h / area > OVERLAP_NOTE
+                }
+            })
+        }
+    })
+}
+
 /// 單行得縮到比這個倍率還小，就考慮改成分行。
 const WRAP_IF_BELOW: f64 = 0.75;
 /// 分行後的字要比單行大這麼多倍，才值得分行。
@@ -672,6 +690,8 @@ pub fn build_composite(
     let mut blends: Vec<Option<BlendPair>> = Vec::new();
     let mut smart: Vec<bool> = Vec::new();
     let mut notes: Vec<UserMessage> = Vec::new();
+    // 每個物件放好之後的外框，用來提醒「文字壓在別的東西上」
+    let mut spans: Vec<(bool, [f64; 4])> = Vec::new();
     // 每個文字物件：整體縮小之前的實際倍率，與「最少要多大才繡得出來」（字高與筆畫夠寬兩者中較嚴的）
     let mut text_limits: Vec<(f64, f64)> = Vec::new();
     let min_params = MinSizeParams {
@@ -733,16 +753,31 @@ pub fn build_composite(
             }
         }
         notes.extend(built.notes.iter().cloned());
+        let is_text = matches!(item.content, Content::Text { .. });
+        let mut span: Option<[f64; 4]> = None;
         for (shape, blend) in built.shapes.into_iter().zip(built.blends) {
             let polygon = flip(&shape.polygon.scale(effective), item.flip_x, item.flip_y)
                 .rotate(item.rotation)
                 .translate(item.x, item.y);
+            if let Some((a, b)) = polygon.bounds() {
+                span = Some(span.map_or([a[0], a[1], b[0], b[1]], |s| {
+                    [
+                        s[0].min(a[0]),
+                        s[1].min(a[1]),
+                        s[2].max(b[0]),
+                        s[3].max(b[1]),
+                    ]
+                }));
+            }
             shapes.push(ColoredShape {
                 polygon,
                 color: shape.color,
             });
             blends.push(blend);
             smart.push(built.smart);
+        }
+        if let Some(s) = span {
+            spans.push((is_text, s));
         }
         infos.push(ItemInfo {
             id: item.id.clone(),
@@ -778,6 +813,13 @@ pub fn build_composite(
                 )),
                 items: infos,
             };
+        }
+        if text_overlaps(&spans) {
+            notes.push(UserMessage::new(
+                "text_overlap",
+                "文字壓在別的東西上面了，繡出來字可能會被蓋住或看不清楚。",
+                Some("可以把文字移開，或按「往上一層」讓文字最後繡。"),
+            ));
         }
         notes.dedup_by(|a, b| a.code == b.code && a.code == "enlarged");
         notes.append(&mut preview.adjustments);

@@ -763,3 +763,48 @@ fn 弧形文字也能旋轉與放進框() {
     assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
     assert!(validate_plan(&r.preview.plan, &hoop("b70-medium")).is_ok());
 }
+
+#[test]
+fn 文字壓在圖案上面會提醒_但不擋() {
+    let items = vec![circle("c", 600.0, 0.0, 0.0), text("t", "王小明", 0.0, 0.0)];
+    let r = build_composite(&fonts(), &req(items, "b70-large"), &[]);
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    let m = r
+        .preview
+        .adjustments
+        .iter()
+        .find(|m| m.code == "text_overlap")
+        .expect("應該有提醒");
+    assert!(m.text.contains("文字"), "{}", m.text);
+}
+
+#[test]
+fn 文字和圖案分開放就不提醒() {
+    let items = vec![
+        circle("c", 300.0, 0.0, -500.0),
+        text("t", "王小明", 0.0, 400.0),
+    ];
+    let r = build_composite(&fonts(), &req(items, "b70-large"), &[]);
+    assert!(!r
+        .preview
+        .adjustments
+        .iter()
+        .any(|m| m.code == "text_overlap"));
+}
+
+#[test]
+fn 文字壓在文字上也提醒一次就好() {
+    let items = vec![
+        text("a", "王小明", 0.0, 0.0),
+        text("b", "王小明", 10.0, 10.0),
+    ];
+    let r = build_composite(&fonts(), &req(items, "b70-large"), &[]);
+    assert_eq!(
+        r.preview
+            .adjustments
+            .iter()
+            .filter(|m| m.code == "text_overlap")
+            .count(),
+        1
+    );
+}

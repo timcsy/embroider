@@ -927,6 +927,7 @@
   .adds { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .adds button, .tools button, .shapes button { min-height: 52px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
   .adds button:first-child { border-color: var(--accent); }
+  .adds button:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .shapes { margin-top: 10px; }
   .tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .tools button:disabled { opacity: 0.4; }

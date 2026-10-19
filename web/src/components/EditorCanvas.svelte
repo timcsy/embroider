@@ -58,8 +58,8 @@
   let canvas = $state<HTMLCanvasElement>()
   let viewportH = $state(typeof window === 'undefined' ? 800 : window.innerHeight)
 
-  // 畫布大小：寬度盡量用滿，但高度不超過畫面的四成（手機直立，下面要留位置給工具）到八成（電腦）
-  const maxH = $derived(viewportH * (avail > 700 ? 0.78 : 0.4))
+  // 畫布大小：寬度盡量用滿，但高度不超過畫面的三成（矮螢幕）、四成（手機直立，下面要留位置給工具）到八成（電腦）
+  const maxH = $derived(viewportH * (avail > 700 ? 0.78 : viewportH < 700 ? 0.3 : 0.4))
   const ratio = $derived(hoop.width / hoop.height)
   const width = $derived(Math.max(200, Math.min(avail, maxH * ratio)))
   const height = $derived(Math.round(width / ratio))

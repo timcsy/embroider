@@ -1,43 +1,86 @@
-# 建置並發佈到 GitHub Pages（網站是純靜態、網址相對，放在子路徑也能用）
+# 檢查（Rust 與前端、端對端、獨立讀檔驗證），通過後建置並發佈到 GitHub Pages。
+# 網站是純靜態、網址是相對的，放在 https://<帳號>.github.io/<專案名>/ 這種子路徑也能用。
+# 推到 main 才會發佈；pull request 只做檢查，不發佈。
 name: pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
-  pages: write
-  id-token: write
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
-  build:
+  rust:
+    name: Rust 檢查與測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: ./scripts/check.sh
+
+  verify:
+    name: 輸出檔獨立讀回驗證
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v5
+      - run: ./scripts/verify.sh
+
+  web:
+    name: 前端建置、測試與端對端
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: jetli/wasm-pack-action@v0.4.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: cargo install wasm-pack --locked
-      - run: ./scripts/check.sh
       - working-directory: web
         run: |
           npm ci
           npm run build:wasm
+          npm run check
           npm test
-          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            web/test-results
+            web/playwright-report
+          retention-days: 7
+      - working-directory: web
+        run: npm run build
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: web/dist
+
   deploy:
-    needs: build
+    name: 發佈到 GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: [rust, verify, web]
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

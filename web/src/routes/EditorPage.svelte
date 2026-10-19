@@ -14,6 +14,11 @@
     removeLastStroke,
     startDraw,
     type Brush,
+    addFrame,
+    flipItem,
+    mirrorCopy,
+    repeatCircle,
+    repeatRow,
     addImage,
     addShape,
     addText,
@@ -422,6 +427,17 @@
     if (selected?.kind === 'draw') commit(removeLastStroke(doc, selected.id))
   }
 
+  // ── 做很多個、對稱 ──
+  let manyCount = $state(5)
+  let manyGapCm = $state(1)
+  let manyRadiusCm = $state(3)
+  const itemSize = (id: string) => {
+    const i = infos.find((x) => x.id === id)
+    return i && i.width > 0 ? { width: i.width, height: i.height } : { width: 300, height: 300 }
+  }
+  const rowOf = (id: string, axis: 'x' | 'y') =>
+    commit(repeatRow(doc, id, { count: manyCount, gap: manyGapCm * 100, axis, size: itemSize(id) }))
+
   const shapeKinds: ShapeKind[] = ['circle', 'rect', 'heart', 'star', 'line']
   let shapeMenu = $state(false)
 </script>
@@ -510,6 +526,13 @@
             {/each}
           </div>
         {/if}
+        {#if shapeMenu}
+          <h3>{strings.editor.frames}</h3>
+          <div class="chips shapes" role="group" aria-label={strings.editor.frames}>
+            <button onclick={() => { commit(addFrame(doc, 'rect', hoop)); shapeMenu = false }} data-testid="frame-rect">{strings.editor.frameRect}</button>
+            <button onclick={() => { commit(addFrame(doc, 'circle', hoop)); shapeMenu = false }} data-testid="frame-circle">{strings.editor.frameCircle}</button>
+          </div>
+        {/if}
         {#if loadingImage}<p class="muted" role="status">{strings.image.loading}</p>{/if}
         {#if imageProblem}<Notice message={imageProblem} tone="warn" />{/if}
       </div>
@@ -584,6 +607,22 @@
                 >{strings.fonts[f.id]}</button>
               {/each}
             </div>
+
+            <h3>{strings.editor.curve}</h3>
+            <div class="size">
+              <span class="end">{strings.editor.curveDown}</span>
+              <input
+                type="range"
+                min="-180"
+                max="180"
+                step="10"
+                value={it.curve}
+                aria-label={strings.editor.curve}
+                oninput={(e) => patch(it.id, { curve: Number(e.currentTarget.value) }, 'curve')}
+              />
+              <span class="end">{strings.editor.curveUp}</span>
+            </div>
+            <p class="muted center">{it.curve === 0 ? strings.editor.curveFlat : `${Math.abs(it.curve)}°`}</p>
           {/if}
 
           {#if it.kind === 'image'}
@@ -717,6 +756,37 @@
               <output>{(base * it.scale).toFixed(1)} {strings.editor.sizeUnit}</output>
             </div>
           {/if}
+
+          <h3>{strings.editor.manyTitle}</h3>
+          <div class="size">
+            <span class="end">{strings.editor.manyCount}</span>
+            <input type="range" min="2" max="24" step="1" bind:value={manyCount} aria-label={strings.editor.manyCount} />
+            <output>{manyCount} {strings.editor.manyUnit}</output>
+          </div>
+          <div class="size">
+            <span class="end">{strings.editor.manyGap}</span>
+            <input type="range" min="0" max="5" step="0.5" bind:value={manyGapCm} aria-label={strings.editor.manyGap} />
+            <output>{manyGapCm.toFixed(1)} {strings.editor.sizeUnit}</output>
+          </div>
+          <div class="size">
+            <span class="end">{strings.editor.manyRadius}</span>
+            <input type="range" min="1" max="12" step="0.5" bind:value={manyRadiusCm} aria-label={strings.editor.manyRadius} />
+            <output>{manyRadiusCm.toFixed(1)} {strings.editor.sizeUnit}</output>
+          </div>
+          <div class="tools">
+            <button onclick={() => rowOf(it.id, 'x')} data-testid="many-row">{strings.editor.manyRow}</button>
+            <button onclick={() => rowOf(it.id, 'y')} data-testid="many-column">{strings.editor.manyColumn}</button>
+            <button onclick={() => commit(repeatCircle(doc, it.id, { count: manyCount, radius: manyRadiusCm * 100 }))} data-testid="many-circle">{strings.editor.manyCircle}</button>
+          </div>
+          <p class="muted">{strings.editor.manyHint}</p>
+
+          <h3>{strings.editor.mirrorTitle}</h3>
+          <div class="tools">
+            <button onclick={() => commit(mirrorCopy(doc, it.id, 'x'))} data-testid="mirror-x">{strings.editor.mirrorX}</button>
+            <button onclick={() => commit(mirrorCopy(doc, it.id, 'y'))} data-testid="mirror-y">{strings.editor.mirrorY}</button>
+            <button onclick={() => commit(flipItem(doc, it.id, 'x'))} data-testid="flip-x">{strings.editor.flipX}</button>
+            <button onclick={() => commit(flipItem(doc, it.id, 'y'))} data-testid="flip-y">{strings.editor.flipY}</button>
+          </div>
 
           <h3>{strings.editor.layerTitle}</h3>
           <div class="tools">

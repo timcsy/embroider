@@ -13,6 +13,9 @@ interface Base {
   /** 度，順時針，-180 ~ 180 */
   rotation: number
   scale: number
+  /** 左右、上下翻轉（在旋轉之前） */
+  flipX: boolean
+  flipY: boolean
 }
 
 export interface TextItem extends Base {
@@ -21,6 +24,8 @@ export interface TextItem extends Base {
   fontId: string
   heightCm: number
   colorIdx: number
+  /** 整行字跨過幾度（正的往上拱、負的往下彎，0 是平的） */
+  curve: number
 }
 
 export interface ImageItem extends Base {
@@ -101,7 +106,14 @@ function put(doc: EditorDoc, make: (id: string, at: { x: number; y: number }) =>
   return { ...doc, items: [...doc.items, item], selectedId: id }
 }
 
-const base = (id: string, at: { x: number; y: number }): Base => ({ id, ...at, rotation: 0, scale: 1 })
+const base = (id: string, at: { x: number; y: number }): Base => ({
+  id,
+  ...at,
+  rotation: 0,
+  scale: 1,
+  flipX: false,
+  flipY: false,
+})
 
 export function addText(doc: EditorDoc): EditorDoc {
   return put(doc, (id, at) => ({
@@ -111,6 +123,7 @@ export function addText(doc: EditorDoc): EditorDoc {
     fontId: 'sans',
     heightCm: 2.5,
     colorIdx: 0,
+    curve: 0,
   }))
 }
 
@@ -175,6 +188,8 @@ export function startDraw(doc: EditorDoc, points: P[], brush: Brush, fit: number
     y: round1(cy),
     rotation: 0,
     scale: 1,
+    flipX: false,
+    flipY: false,
     kind: 'draw',
     strokes: [pts.map(([x, y]) => [round1(x - round1(cx)), round1(y - round1(cy))] as [number, number])],
     ...brush,
@@ -303,7 +318,15 @@ export function toRequest(
   const out: CompositeItem[] = []
   const ids: string[] = []
   for (const it of doc.items) {
-    const placement = { id: it.id, x: it.x, y: it.y, rotation: it.rotation, scale: it.scale }
+    const placement = {
+      id: it.id,
+      x: it.x,
+      y: it.y,
+      rotation: it.rotation,
+      scale: it.scale,
+      flip_x: it.flipX,
+      flip_y: it.flipY,
+    }
     if (it.kind === 'text') {
       out.push({
         ...placement,
@@ -312,6 +335,7 @@ export function toRequest(
         font_id: it.fontId,
         height: cm(it.heightCm),
         color: THREADS[it.colorIdx] ?? THREADS[0],
+        curve: it.curve,
       })
     } else if (it.kind === 'draw') {
       out.push({
@@ -363,7 +387,7 @@ export function toRequest(
 /** 舊版（一次只有文字或一張圖）存下來的設計，轉成編輯器的一個物件。 */
 export function fromLegacy(p: Record<string, unknown>, imageId?: string): EditorItem | null {
   const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
-  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1 }
+  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1, flipX: false, flipY: false }
   if (p.mode === 'text') {
     return {
       ...base,
@@ -372,6 +396,7 @@ export function fromLegacy(p: Record<string, unknown>, imageId?: string): Editor
       fontId: typeof p.fontId === 'string' ? p.fontId : 'sans',
       heightCm: num(p.sizeCm, 2.5),
       colorIdx: num(p.colorIdx, 0),
+      curve: 0,
     }
   }
   if (p.mode === 'image' && imageId) {
@@ -386,4 +411,95 @@ export function fromLegacy(p: Record<string, unknown>, imageId?: string): Editor
     }
   }
   return null
+}
+
+// ── 拼布與刺繡常用：整排重複、圍成一圈、鏡像、邊框 ──
+
+const MIN_COPIES = 2
+const MAX_COPIES = 24
+
+function cloneAt(doc: EditorDoc, src: EditorItem, patch: Partial<EditorItem>, all: EditorItem[]): EditorItem {
+  return { ...src, ...patch, id: nextId([...doc.items, ...all]) } as EditorItem
+}
+
+/** 做一排：沿水平或垂直方向複製成 `count` 個，間距相等，整排以原本的位置為中心。原本那個放在第一格。 */
+export function repeatRow(
+  doc: EditorDoc,
+  id: string,
+  o: { count: number; gap: number; axis: 'x' | 'y'; size: { width: number; height: number } },
+): EditorDoc {
+  const src = doc.items.find((i) => i.id === id)
+  if (!src) return doc
+  const count = clamp(Math.round(o.count), MIN_COPIES, MAX_COPIES)
+  const r = (src.rotation * Math.PI) / 180
+  const { width: w, height: h } = o.size
+  // 轉過之後，沿著水平（或垂直）方向佔多寬
+  const extent =
+    o.axis === 'x'
+      ? Math.abs(w * Math.cos(r)) + Math.abs(h * Math.sin(r))
+      : Math.abs(w * Math.sin(r)) + Math.abs(h * Math.cos(r))
+  const step = extent + o.gap
+  const first = -((count - 1) * step) / 2
+  const at = (i: number) => (o.axis === 'x' ? { x: src.x + first + i * step } : { y: src.y + first + i * step })
+  const copies: EditorItem[] = []
+  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, at(i), copies))
+  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0) } as EditorItem) : it))
+  const index = items.findIndex((it) => it.id === id)
+  items.splice(index + 1, 0, ...copies)
+  return { ...doc, items }
+}
+
+/** 圍成一圈：圓心在物件現在的位置，第一個在正上方，依序順時針，每個都朝外轉。 */
+export function repeatCircle(doc: EditorDoc, id: string, o: { count: number; radius: number }): EditorDoc {
+  const src = doc.items.find((i) => i.id === id)
+  if (!src) return doc
+  const count = clamp(Math.round(o.count), MIN_COPIES, MAX_COPIES)
+  const at = (i: number): Partial<EditorItem> => {
+    const a = (2 * Math.PI * i) / count
+    return {
+      x: round1(src.x + o.radius * Math.sin(a)),
+      y: round1(src.y - o.radius * Math.cos(a)),
+      rotation: wrapAngle(src.rotation + (360 * i) / count),
+    }
+  }
+  const copies: EditorItem[] = []
+  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, at(i), copies))
+  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0) } as EditorItem) : it))
+  const index = items.findIndex((it) => it.id === id)
+  items.splice(index + 1, 0, ...copies)
+  return { ...doc, items }
+}
+
+/** 翻轉自己（再翻一次就回來）。 */
+export function flipItem(doc: EditorDoc, id: string, axis: 'x' | 'y'): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  if (!it) return doc
+  return updateItem(doc, id, axis === 'x' ? { flipX: !it.flipX } : { flipY: !it.flipY })
+}
+
+/** 鏡像複製：在另一邊做一個對稱的（`x` 是左右對稱，以框的垂直中線為軸；`y` 是上下對稱）。 */
+export function mirrorCopy(doc: EditorDoc, id: string, axis: 'x' | 'y'): EditorDoc {
+  const src = doc.items.find((i) => i.id === id)
+  if (!src) return doc
+  const copy = cloneAt(
+    doc,
+    src,
+    axis === 'x'
+      ? { x: -src.x, rotation: wrapAngle(-src.rotation), flipX: !src.flipX }
+      : { y: -src.y, rotation: wrapAngle(-src.rotation), flipY: !src.flipY },
+    [],
+  )
+  const items = [...doc.items]
+  items.splice(items.indexOf(src) + 1, 0, copy)
+  return { ...doc, items, selectedId: copy.id }
+}
+
+/** 邊框：空心的方框或圓框，大小放滿繡框的可繡範圍（四邊各留半公分）。 */
+export function addFrame(doc: EditorDoc, kind: 'rect' | 'circle', hoop: Hoop): EditorDoc {
+  const edge = 1
+  const widthCm = (hoop.width - 2 * hoop.margin) / 100 - edge
+  const heightCm = (hoop.height - 2 * hoop.margin) / 100 - edge
+  const d = addShape(doc, kind)
+  const id = d.selectedId as string
+  return updateItem(d, id, { x: 0, y: 0, widthCm, heightCm, filled: false, lineWidthMm: 3 } as Partial<EditorItem>)
 }

@@ -12,6 +12,7 @@ import {
   toRequest,
   updateItem,
   type EditorDoc,
+  type EditorItem,
   type ImageSource,
 } from '../src/lib/editor'
 import type { Hoop } from '../src/lib/types'
@@ -292,3 +293,119 @@ describe('手繪', () => {
 
 import { THREADS } from '../src/lib/threads'
 const THREADS_NAME_3 = THREADS[3].name
+
+import { addFrame, flipItem, mirrorCopy, repeatCircle, repeatRow } from '../src/lib/editor'
+
+const docWith = (kind: 'circle' | 'rect' = 'rect', at = { x: 0, y: 0 }) => {
+  let d = addShape(emptyDoc(hoop.id), kind)
+  d = updateItem(d, d.items[0].id, at)
+  return d
+}
+
+describe('整排重複', () => {
+  it('橫排：份數正確、間距相等、整排以原本的位置為中心', () => {
+    const d = docWith('rect', { x: 100, y: 50 })
+    const r = repeatRow(d, d.items[0].id, { count: 4, gap: 20, axis: 'x', size: { width: 80, height: 40 } })
+    expect(r.items).toHaveLength(4)
+    const xs = r.items.map((i) => i.x)
+    expect(xs.map((x, i) => (i ? x - xs[i - 1] : 100))).toEqual([100, 100, 100, 100])
+    expect((xs[0] + xs[3]) / 2).toBeCloseTo(100)
+    expect(new Set(r.items.map((i) => i.y))).toEqual(new Set([50]))
+  })
+
+  it('直排用高度算間距', () => {
+    const d = docWith()
+    const r = repeatRow(d, d.items[0].id, { count: 3, gap: 10, axis: 'y', size: { width: 80, height: 40 } })
+    const ys = r.items.map((i) => i.y)
+    expect(ys[1] - ys[0]).toBe(50)
+    expect(new Set(r.items.map((i) => i.x)).size).toBe(1)
+  })
+
+  it('物件轉了 90 度：橫排改用轉過的寬度（原本的高）算間距', () => {
+    let d = docWith()
+    d = updateItem(d, d.items[0].id, { rotation: 90 })
+    const r = repeatRow(d, d.items[0].id, { count: 2, gap: 0, axis: 'x', size: { width: 80, height: 40 } })
+    expect(Math.abs(r.items[1].x - r.items[0].x)).toBeCloseTo(40)
+  })
+
+  it('份數限制在 2 到 24；新的物件編號都不同', () => {
+    const d = docWith()
+    expect(repeatRow(d, d.items[0].id, { count: 99, gap: 0, axis: 'x', size: { width: 10, height: 10 } }).items).toHaveLength(24)
+    expect(repeatRow(d, d.items[0].id, { count: 1, gap: 0, axis: 'x', size: { width: 10, height: 10 } }).items).toHaveLength(2)
+    const r = repeatRow(d, d.items[0].id, { count: 5, gap: 0, axis: 'x', size: { width: 10, height: 10 } })
+    expect(new Set(r.items.map((i) => i.id)).size).toBe(5)
+  })
+})
+
+describe('圍成一圈', () => {
+  it('每一個離圓心一樣遠，第一個在正上方，依序順時針、並朝外轉', () => {
+    const d = docWith('rect', { x: 20, y: 30 })
+    const r = repeatCircle(d, d.items[0].id, { count: 4, radius: 200 })
+    expect(r.items).toHaveLength(4)
+    const [top, right, bottom, left] = r.items
+    for (const it of r.items) expect(Math.hypot(it.x - 20, it.y - 30)).toBeCloseTo(200)
+    expect([top.x, top.y]).toEqual([20, -170])
+    expect(right.x).toBeCloseTo(220)
+    expect(bottom.y).toBeCloseTo(230)
+    expect(left.x).toBeCloseTo(-180)
+    expect(r.items.map((i) => i.rotation)).toEqual([0, 90, 180, -90])
+  })
+})
+
+describe('鏡像', () => {
+  it('左右對稱複製：位置在另一邊、旋轉反向、翻轉', () => {
+    let d = docWith('heart' as 'rect', { x: 150, y: 40 })
+    d = updateItem(d, d.items[0].id, { rotation: 20 })
+    const r = mirrorCopy(d, d.items[0].id, 'x')
+    expect(r.items).toHaveLength(2)
+    expect(r.items[1]).toMatchObject({ x: -150, y: 40, rotation: -20, flipX: true, flipY: false })
+    expect(r.selectedId).toBe(r.items[1].id)
+  })
+
+  it('上下對稱複製', () => {
+    const d = docWith('rect', { x: 10, y: 120 })
+    const r = mirrorCopy(d, d.items[0].id, 'y')
+    expect(r.items[1]).toMatchObject({ x: 10, y: -120, flipY: true, flipX: false })
+  })
+
+  it('翻轉自己：再翻一次就回來', () => {
+    let d = docWith()
+    const id = d.items[0].id
+    d = flipItem(d, id, 'x')
+    expect(d.items[0].flipX).toBe(true)
+    d = flipItem(d, id, 'x')
+    expect(d.items[0].flipX).toBe(false)
+  })
+
+  it('翻轉帶進請求', () => {
+    let d = docWith()
+    d = flipItem(d, d.items[0].id, 'y')
+    expect(toRequest(d, hoop, []).request.items[0]).toMatchObject({ flip_x: false, flip_y: true })
+  })
+})
+
+describe('邊框', () => {
+  it('方框：空心、放滿框的可繡範圍（留一點邊）', () => {
+    const d = addFrame(emptyDoc(hoop.id), 'rect', hoop)
+    const it = d.items[0]
+    if (it.kind !== 'shape') throw new Error('應是形狀')
+    expect(it).toMatchObject({ shape: 'rect', filled: false, x: 0, y: 0 })
+    expect(it.widthCm).toBeCloseTo((hoop.width - 2 * hoop.margin) / 100 - 1)
+    expect(it.heightCm).toBeCloseTo((hoop.height - 2 * hoop.margin) / 100 - 1)
+  })
+
+  it('圓框：橢圓或圓都用同樣的寬高', () => {
+    const d = addFrame(emptyDoc(hoop.id), 'circle', hoop)
+    expect(d.items[0]).toMatchObject({ kind: 'shape', shape: 'circle', filled: false })
+  })
+})
+
+describe('弧形文字', () => {
+  it('文字預設不彎，彎度帶進請求', () => {
+    let d = addText(emptyDoc(hoop.id))
+    d = updateItem(d, d.items[0].id, { text: '字' })
+    expect(toRequest(d, hoop, []).request.items[0]).toMatchObject({ kind: 'text', curve: 0 })
+    d = updateItem(d, d.items[0].id, { curve: 90 } as Partial<EditorItem>)
+    expect(toRequest(d, hoop, []).request.items[0]).toMatchObject({ curve: 90 })
+  })
+})

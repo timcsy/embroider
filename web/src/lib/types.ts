@@ -118,7 +118,16 @@ export type ShapeKind = 'circle' | 'rect' | 'heart' | 'star' | 'line'
 
 /** 送進核心的物件。位置是物件中心離框中心的偏移（0.1mm）。 */
 export type CompositeContent =
-  | { kind: 'text'; text: string; font_id: string; height: number; color: ThreadColor; max_width?: number | null }
+  | {
+      kind: 'text'
+      text: string
+      font_id: string
+      height: number
+      color: ThreadColor
+      max_width?: number | null
+      /** 整行字跨過幾度：正的往上拱、負的往下彎、0 是平的 */
+      curve: number
+    }
   | { kind: 'draw'; strokes: [number, number][][]; width: number; color: ThreadColor; filled: boolean }
   | { kind: 'image'; image: number; width: number; height: number; color_count: number; simplify: number; size: number }
   | {
@@ -137,6 +146,8 @@ export type CompositeItem = CompositeContent & {
   y: number
   rotation: number
   scale: number
+  flip_x: boolean
+  flip_y: boolean
 }
 
 export interface CompositeRequest {

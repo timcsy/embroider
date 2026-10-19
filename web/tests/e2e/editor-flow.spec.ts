@@ -281,3 +281,79 @@ test('平板上也能畫畫', async ({ page }) => {
   await page.getByTestId('draw-done').click()
   await expect(page.getByTestId('save')).toBeEnabled()
 })
+
+// ── 拼布與刺繡常用 ──
+const itemCount = (page: Page) => page.locator('[data-testid^="item-item-"]')
+
+test('做一橫排：變成好幾個，位置左右排開', async ({ page }) => {
+  await open(page)
+  await shape(page, 'circle')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('slider', { name: '做幾個？' }).fill('4')
+  await page.getByTestId('many-row').click()
+  await expect(itemCount(page)).toHaveCount(4)
+  const xs: number[] = []
+  for (const id of ['item-1', 'item-2', 'item-3', 'item-4']) xs.push((await rectOf(page, id))!.x)
+  expect(xs[1]).toBeGreaterThan(xs[0])
+  expect(xs[3]).toBeGreaterThan(xs[2])
+  await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
+})
+
+test('圍成一圈，上一步可以還原', async ({ page }) => {
+  await open(page)
+  await shape(page, 'heart')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('slider', { name: '做幾個？' }).fill('6')
+  await page.getByTestId('many-circle').click()
+  await expect(itemCount(page)).toHaveCount(6)
+  await page.getByRole('button', { name: '上一步' }).click()
+  await expect(itemCount(page)).toHaveCount(1)
+})
+
+test('左右對稱複製：多一個，在另一邊', async ({ page }) => {
+  await open(page)
+  await shape(page, 'heart')
+  // 先把愛心拖到左邊
+  const r = (await rectOf(page, 'item-1'))!
+  const cx = r.x + r.width / 2
+  const cy = r.y + r.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx - 60, cy, { steps: 5 })
+  await page.mouse.up()
+  await page.getByTestId('mirror-x').click()
+  await expect(itemCount(page)).toHaveCount(2)
+  const a = (await rectOf(page, 'item-1'))!
+  const b = (await rectOf(page, 'item-2'))!
+  const stage = await box(page, 'stage')
+  const mid = stage.x + stage.width / 2
+  expect(a.x + a.width / 2).toBeLessThan(mid)
+  expect(b.x + b.width / 2).toBeGreaterThan(mid)
+})
+
+test('邊框：方框與圓框是空心的，放得進框', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('add-shape').click()
+  await page.getByTestId('frame-rect').click()
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('save')).toBeEnabled()
+  await expect(page.getByRole('radio', { name: '空心' })).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('add-shape').click()
+  await page.getByTestId('frame-circle').click()
+  await expect(itemCount(page)).toHaveCount(2)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('字排成弧形：拖「字排成弧形」，預覽的高度變高', async ({ page }) => {
+  await open(page)
+  const t = await addText(page)
+  await t.fill('王小明')
+  const heightCm = async () => {
+    const text = (await page.getByTestId('size').textContent()) ?? ''
+    return Number(/× ([\d.]+) 公分/.exec(text)?.[1])
+  }
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const flat = await heightCm()
+  await page.getByRole('slider', { name: '字排成弧形' }).fill('120')
+  await expect.poll(heightCm, { timeout: 30_000 }).toBeGreaterThan(flat * 1.3)
+})

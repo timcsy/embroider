@@ -181,7 +181,8 @@
     const cp = local(e)
     ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
     pointers.set(e.pointerId, cp)
-    ;(e.currentTarget as HTMLElement).focus?.()
+    // 取得鍵盤焦點，但不要讓頁面跳動（手指一碰畫布頁面就捲走會很糟）
+    ;(e.currentTarget as HTMLElement).focus?.({ preventScroll: true })
 
     if (pointers.size === 2 && selected) {
       const [a, b] = [...pointers.values()]

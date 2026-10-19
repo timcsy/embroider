@@ -410,3 +410,34 @@ test('整組一起轉：按「向右轉」，每一個都多轉十五度', async
   await expect(page.locator('[data-testid="item-item-1"]')).toHaveAttribute('transform', /rotate\(30\)/)
   await expect(page.locator('[data-testid="item-item-2"]')).toHaveAttribute('transform', /rotate\(105\)/)
 })
+
+test('兩根手指同時縮放與旋轉（真的觸控事件）', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const r0 = (await rectOf(page, 'item-1'))!
+  const cx = r0.x + r0.width / 2
+  const cy = r0.y + r0.height / 2
+  const cdp = await page.context().newCDPSession(page)
+  const touch = (type: string, pts: { x: number; y: number }[]) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i + 1 })) })
+  // 兩指從左右各 30 像素，拉開到各 60 像素，並順時針轉 45 度
+  await touch('touchStart', [{ x: cx - 30, y: cy }, { x: cx + 30, y: cy }])
+  const steps = 6
+  for (let i = 1; i <= steps; i++) {
+    const k = i / steps
+    const d = 30 + 30 * k
+    const a = (Math.PI / 4) * k
+    await touch('touchMove', [
+      { x: cx - d * Math.cos(a), y: cy - d * Math.sin(a) },
+      { x: cx + d * Math.cos(a), y: cy + d * Math.sin(a) },
+    ])
+  }
+  await touch('touchEnd', [])
+  const r1 = (await rectOf(page, 'item-1'))!
+  expect(Math.max(r1.width, r1.height)).toBeGreaterThan(Math.max(r0.width, r0.height) * 1.3)
+  const transform = (await page.locator('[data-testid="item-item-1"]').getAttribute('transform')) ?? ''
+  const deg = Number(/rotate\(([-\d.]+)\)/.exec(transform)?.[1])
+  expect(deg).toBeGreaterThan(30)
+  expect(deg).toBeLessThan(60)
+})

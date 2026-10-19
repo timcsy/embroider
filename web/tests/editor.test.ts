@@ -409,3 +409,66 @@ describe('弧形文字', () => {
     expect(toRequest(d, hoop, []).request.items[0]).toMatchObject({ curve: 90 })
   })
 })
+
+import { moveBy, ungroup } from '../src/lib/editor'
+
+describe('一組一起動', () => {
+  const row = () => {
+    const d = docWith('rect', { x: 0, y: 0 })
+    return repeatRow(d, d.items[0].id, { count: 3, gap: 0, axis: 'x', size: { width: 100, height: 50 } })
+  }
+
+  it('做一排或圍成一圈產生的，屬於同一組；單獨的物件沒有組', () => {
+    const r = row()
+    const g = new Set(r.items.map((i) => i.groupId))
+    expect(g.size).toBe(1)
+    expect([...g][0]).toBeTruthy()
+    expect(docWith().items[0].groupId).toBeNull()
+    const c = repeatCircle(docWith(), docWith().items[0].id, { count: 4, radius: 100 })
+    expect(new Set(c.items.map((i) => i.groupId)).size).toBe(1)
+  })
+
+  it('移動其中一個，整組跟著移動同樣的距離', () => {
+    const r = row()
+    const before = r.items.map((i) => [i.x, i.y])
+    const moved = moveBy(r, r.items[1].id, 30, -20, false)
+    moved.items.forEach((it, i) => {
+      expect([it.x, it.y]).toEqual([before[i][0] + 30, before[i][1] - 20])
+    })
+  })
+
+  it('選擇「只動這一個」時，只有它動', () => {
+    const r = row()
+    const moved = moveBy(r, r.items[0].id, 10, 10, true)
+    expect(moved.items[0].x).toBe(r.items[0].x + 10)
+    expect(moved.items[1].x).toBe(r.items[1].x)
+  })
+
+  it('沒有組的物件照常移動', () => {
+    const d = docWith('rect', { x: 5, y: 5 })
+    expect(moveBy(d, d.items[0].id, 1, 2, false).items[0]).toMatchObject({ x: 6, y: 7 })
+  })
+
+  it('拆開之後各自獨立', () => {
+    const r = ungroup(row(), row().items[0].id)
+    expect(r.items.every((i) => i.groupId === null)).toBe(true)
+    const moved = moveBy(r, r.items[0].id, 50, 0, false)
+    expect(moved.items[1].x).toBe(r.items[1].x)
+  })
+
+  it('舊的存檔沒有組的欄位，也當成沒有組', () => {
+    const d = docWith('rect', { x: 0, y: 0 })
+    const legacy = { ...d, items: d.items.map((i) => ({ ...i, groupId: undefined })) } as unknown as EditorDoc
+    expect(moveBy(legacy, legacy.items[0].id, 3, 0, false).items[0].x).toBe(3)
+  })
+})
+
+describe('複製與鏡像不會把新的物件塞進原本那一組', () => {
+  it('複製、鏡像複製出來的是單獨的', () => {
+    const d = docWith('rect', { x: 50, y: 0 })
+    const r = repeatRow(d, d.items[0].id, { count: 2, gap: 0, axis: 'x', size: { width: 10, height: 10 } })
+    const id = r.items[0].id
+    expect(duplicateItem(r, id).items.find((i) => i.id === duplicateItem(r, id).selectedId)?.groupId).toBeNull()
+    expect(mirrorCopy(r, id, 'x').items.find((i) => i.id === mirrorCopy(r, id, 'x').selectedId)?.groupId).toBeNull()
+  })
+})

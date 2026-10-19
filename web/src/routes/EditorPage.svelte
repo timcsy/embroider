@@ -16,6 +16,9 @@
     type Brush,
     addFrame,
     flipItem,
+    groupSize,
+    moveBy,
+    ungroup,
     mirrorCopy,
     repeatCircle,
     repeatRow,
@@ -175,7 +178,16 @@
   }
 
   // ── 加東西、改東西 ──
+  // 同一組的物件預設一起動；選了「只動這一個」才單獨動
+  let solo = $state(false)
+
   function patch(id: string, p: Partial<EditorItem>, key?: string) {
+    const it = doc.items.find((i) => i.id === id)
+    // 只有位置改變、而且這個物件屬於某一組：整組跟著移動同樣的距離
+    if (it && it.groupId && !solo && ('x' in p || 'y' in p) && Object.keys(p).every((k) => k === 'x' || k === 'y')) {
+      commit(moveBy(doc, id, (p.x ?? it.x) - it.x, (p.y ?? it.y) - it.y, false), key ? `${key}:${id}` : undefined)
+      return
+    }
     commit(updateItem(doc, id, p), key ? `${key}:${id}` : undefined)
   }
   function addShapeOf(kind: ShapeKind) {
@@ -757,6 +769,18 @@
             </div>
           {/if}
 
+          {#if groupSize(doc, it.id) > 1}
+            <div class="group" data-testid="group-note">
+              <p>{strings.editor.groupNote(groupSize(doc, it.id))}</p>
+              <div class="tools">
+                <button onclick={() => (solo = !solo)} aria-pressed={solo} class:on={solo} data-testid="group-solo">
+                  {solo ? strings.editor.groupTogether : strings.editor.groupSolo}
+                </button>
+                <button onclick={() => commit(ungroup(doc, it.id))} data-testid="group-break">{strings.editor.groupBreak}</button>
+              </div>
+            </div>
+          {/if}
+
           <h3>{strings.editor.manyTitle}</h3>
           <div class="size">
             <span class="end">{strings.editor.manyCount}</span>
@@ -901,6 +925,9 @@
   .tools .danger { border-color: #d89a9a; color: #9c1c1c; }
   .toast { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff7e0; border: 2px solid #e8c25a; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
   .tools .primary-ish { border-color: var(--accent); background: #fdecec; }
+  .group { background: #eef5ff; border: 2px solid #9db8e8; border-radius: 12px; padding: 4px 12px 12px; margin: 12px 0 0; }
+  .group p { margin: 8px 0; }
+  .tools button.on { border-color: var(--accent); background: #fdecec; }
   .toast button { min-height: 48px; padding: 0 16px; border: 2px solid var(--accent); border-radius: 10px; background: #fff; font-weight: 700; }
   .status { min-height: 1.5em; }
   .hint { text-align: center; }

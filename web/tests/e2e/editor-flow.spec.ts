@@ -357,3 +357,39 @@ test('字排成弧形：拖「字排成弧形」，預覽的高度變高', async
   await page.getByRole('slider', { name: '字排成弧形' }).fill('120')
   await expect.poll(heightCm, { timeout: 30_000 }).toBeGreaterThan(flat * 1.3)
 })
+
+test('做好的一排是一組：拖其中一個整排一起動；可以只動一個、也可以拆開', async ({ page }) => {
+  await open(page)
+  await shape(page, 'circle')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('slider', { name: '做幾個？' }).fill('3')
+  await page.getByTestId('many-row').click()
+  await expect(itemCount(page)).toHaveCount(3)
+  await expect(page.getByTestId('group-note')).toContainText('共 3 個')
+
+  const drag = async (id: string, dx: number, dy: number) => {
+    const r = (await rectOf(page, id))!
+    const cx = r.x + r.width / 2
+    const cy = r.y + r.height / 2
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(cx + dx, cy + dy, { steps: 5 })
+    await page.mouse.up()
+  }
+  const ys = async () => [(await rectOf(page, 'item-1'))!.y, (await rectOf(page, 'item-2'))!.y, (await rectOf(page, 'item-3'))!.y]
+  const y0 = await ys()
+  await drag('item-2', 0, 50)
+  const y1 = await ys()
+  for (let i = 0; i < 3; i++) expect(y1[i] - y0[i]).toBeGreaterThan(30)
+
+  // 只動這一個
+  await page.getByTestId('group-solo').click()
+  await drag('item-2', 0, 30)
+  const y2 = await ys()
+  expect(y2[1] - y1[1]).toBeGreaterThan(15)
+  expect(Math.abs(y2[0] - y1[0])).toBeLessThan(2)
+
+  // 拆開
+  await page.getByTestId('group-break').click()
+  await expect(page.getByTestId('group-note')).toHaveCount(0)
+})

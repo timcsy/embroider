@@ -16,6 +16,8 @@ interface Base {
   /** 左右、上下翻轉（在旋轉之前） */
   flipX: boolean
   flipY: boolean
+  /** 同一組的物件一起移動（做一排、圍成一圈會自動成組）；單獨的是 null */
+  groupId: string | null
 }
 
 export interface TextItem extends Base {
@@ -113,6 +115,7 @@ const base = (id: string, at: { x: number; y: number }): Base => ({
   scale: 1,
   flipX: false,
   flipY: false,
+  groupId: null,
 })
 
 export function addText(doc: EditorDoc): EditorDoc {
@@ -190,6 +193,7 @@ export function startDraw(doc: EditorDoc, points: P[], brush: Brush, fit: number
     scale: 1,
     flipX: false,
     flipY: false,
+    groupId: null,
     kind: 'draw',
     strokes: [pts.map(([x, y]) => [round1(x - round1(cx)), round1(y - round1(cy))] as [number, number])],
     ...brush,
@@ -254,7 +258,7 @@ export function centerItem(doc: EditorDoc, id: string, axis: 'x' | 'y' | 'both')
 export function duplicateItem(doc: EditorDoc, id: string): EditorDoc {
   const src = doc.items.find((i) => i.id === id)
   if (!src) return doc
-  const copy: EditorItem = { ...src, id: nextId(doc.items), x: src.x + STAGGER, y: src.y + STAGGER }
+  const copy: EditorItem = { ...src, id: nextId(doc.items), x: src.x + STAGGER, y: src.y + STAGGER, groupId: null }
   const at = doc.items.indexOf(src)
   const items = [...doc.items]
   items.splice(at + 1, 0, copy)
@@ -387,7 +391,7 @@ export function toRequest(
 /** 舊版（一次只有文字或一張圖）存下來的設計，轉成編輯器的一個物件。 */
 export function fromLegacy(p: Record<string, unknown>, imageId?: string): EditorItem | null {
   const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
-  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1, flipX: false, flipY: false }
+  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1, flipX: false, flipY: false, groupId: null }
   if (p.mode === 'text') {
     return {
       ...base,
@@ -441,9 +445,10 @@ export function repeatRow(
   const step = extent + o.gap
   const first = -((count - 1) * step) / 2
   const at = (i: number) => (o.axis === 'x' ? { x: src.x + first + i * step } : { y: src.y + first + i * step })
+  const group = src.groupId ?? nextGroupId(doc)
   const copies: EditorItem[] = []
-  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, at(i), copies))
-  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0) } as EditorItem) : it))
+  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, { ...at(i), groupId: group }, copies))
+  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0), groupId: group } as EditorItem) : it))
   const index = items.findIndex((it) => it.id === id)
   items.splice(index + 1, 0, ...copies)
   return { ...doc, items }
@@ -462,9 +467,10 @@ export function repeatCircle(doc: EditorDoc, id: string, o: { count: number; rad
       rotation: wrapAngle(src.rotation + (360 * i) / count),
     }
   }
+  const group = src.groupId ?? nextGroupId(doc)
   const copies: EditorItem[] = []
-  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, at(i), copies))
-  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0) } as EditorItem) : it))
+  for (let i = 1; i < count; i++) copies.push(cloneAt(doc, src, { ...at(i), groupId: group }, copies))
+  const items = doc.items.map((it) => (it.id === id ? ({ ...it, ...at(0), groupId: group } as EditorItem) : it))
   const index = items.findIndex((it) => it.id === id)
   items.splice(index + 1, 0, ...copies)
   return { ...doc, items }
@@ -485,8 +491,8 @@ export function mirrorCopy(doc: EditorDoc, id: string, axis: 'x' | 'y'): EditorD
     doc,
     src,
     axis === 'x'
-      ? { x: -src.x, rotation: wrapAngle(-src.rotation), flipX: !src.flipX }
-      : { y: -src.y, rotation: wrapAngle(-src.rotation), flipY: !src.flipY },
+      ? { x: -src.x, rotation: wrapAngle(-src.rotation), flipX: !src.flipX, groupId: null }
+      : { y: -src.y, rotation: wrapAngle(-src.rotation), flipY: !src.flipY, groupId: null },
     [],
   )
   const items = [...doc.items]
@@ -502,4 +508,35 @@ export function addFrame(doc: EditorDoc, kind: 'rect' | 'circle', hoop: Hoop): E
   const d = addShape(doc, kind)
   const id = d.selectedId as string
   return updateItem(d, id, { x: 0, y: 0, widthCm, heightCm, filled: false, lineWidthMm: 3 } as Partial<EditorItem>)
+}
+
+function nextGroupId(doc: EditorDoc): string {
+  const n = doc.items.reduce((m, i) => Math.max(m, Number(/(\d+)$/.exec(i.groupId ?? '')?.[1] ?? 0)), 0)
+  return `group-${n + 1}`
+}
+
+/** 移動一個物件；它屬於某一組、而且沒選「只動這一個」時，整組一起移動同樣的距離。 */
+export function moveBy(doc: EditorDoc, id: string, dx: number, dy: number, solo: boolean): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  if (!it) return doc
+  const group = solo ? null : (it.groupId ?? null)
+  return {
+    ...doc,
+    items: doc.items.map((o) =>
+      o.id === id || (group !== null && o.groupId === group) ? ({ ...o, x: o.x + dx, y: o.y + dy } as EditorItem) : o,
+    ),
+  }
+}
+
+/** 拆開這一組，讓每個物件各自獨立。 */
+export function ungroup(doc: EditorDoc, id: string): EditorDoc {
+  const g = doc.items.find((i) => i.id === id)?.groupId
+  if (!g) return doc
+  return { ...doc, items: doc.items.map((o) => (o.groupId === g ? ({ ...o, groupId: null } as EditorItem) : o)) }
+}
+
+/** 同一組有幾個物件（沒有組是 0）。 */
+export function groupSize(doc: EditorDoc, id: string): number {
+  const g = doc.items.find((i) => i.id === id)?.groupId
+  return g ? doc.items.filter((o) => o.groupId === g).length : 0
 }

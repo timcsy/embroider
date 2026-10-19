@@ -861,7 +861,7 @@ pub fn flow_fill(poly: &Polygon, p: &FillParams) -> Option<Vec<Run>> {
         }
         for s in spans {
             let phase = (j % 3) as f64 / 3.0;
-            let stitched = walk(&s, p.max_stitch, phase);
+            let stitched = walk_polyline(&s, p.max_stitch, phase);
             if stitched.len() >= 2 {
                 runs.push(stitched);
             }
@@ -918,7 +918,7 @@ fn path_len(s: &[[f64; 2]]) -> f64 {
 }
 
 /// 沿折線每隔 `step` 下一針，第一針在 `phase × step` 處（各列錯開，避免針孔排成直線）；頭尾一定下針。
-fn walk(s: &[[f64; 2]], step: f64, phase: f64) -> Vec<[f64; 2]> {
+pub(crate) fn walk_polyline(s: &[[f64; 2]], step: f64, phase: f64) -> Vec<[f64; 2]> {
     let mut out = vec![s[0]];
     let mut next = step * (phase + 0.5).min(1.0);
     let mut done = 0.0;

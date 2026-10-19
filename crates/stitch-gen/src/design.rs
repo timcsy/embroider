@@ -2,6 +2,7 @@
 //! 放大到最小可繡尺寸 → 縮小到放進繡框 → 拉伸補償 → 逐個相連形狀鋪底針、填充、輪廓 → 跳針剪線。
 //! 文字與圖片兩條路徑共用。
 
+use crate::field::field_fill;
 use crate::fill::{best_fill_angle, contour_fill, fill, FillParams};
 use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
@@ -47,6 +48,8 @@ pub struct Settings {
     pub contour_fill: bool,
     /// 彎曲的寬帶狀區域，針跡順著彎度走（需 `shape_aware`）
     pub flow_fill: bool,
+    /// 其他不規則形狀，針跡順著輪廓流動（方向場；需 `shape_aware`）
+    pub field_fill: bool,
 }
 
 impl Default for Settings {
@@ -64,6 +67,7 @@ impl Default for Settings {
             shape_aware: false,
             contour_fill: false,
             flow_fill: false,
+            field_fill: false,
         }
     }
 }
@@ -330,9 +334,15 @@ pub fn build_plan_with_blends(
                 if s.shape_aware && s.contour_fill && part_blend.is_none() && round {
                     runs.extend(contour_fill(&part, &fp));
                 } else {
-                    let flowed = (s.shape_aware && s.flow_fill && part_blend.is_none())
+                    let curved = s.shape_aware && part_blend.is_none();
+                    let flowed = (curved && s.flow_fill)
                         .then(|| flow_fill(&part, &fp))
-                        .flatten();
+                        .flatten()
+                        .or_else(|| {
+                            (curved && s.field_fill)
+                                .then(|| field_fill(&part, &fp))
+                                .flatten()
+                        });
                     runs.extend(flowed.unwrap_or_else(|| fill(&part, &fp)));
                     if s.edge_outline {
                         runs.extend(outline(&part, 25.0));

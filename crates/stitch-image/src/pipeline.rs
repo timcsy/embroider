@@ -478,6 +478,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
             shape_aware: true,
             contour_fill: true,
             flow_fill: true,
+            field_fill: true,
             ..req.settings.clone()
         },
     );

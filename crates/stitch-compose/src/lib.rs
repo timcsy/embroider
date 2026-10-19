@@ -47,6 +47,16 @@ pub enum Content {
         /// 圖長邊的大小（0.1mm）
         size: f64,
     },
+    /// 手繪：每一筆是一串點（0.1mm，相對於物件中心）。
+    Draw {
+        strokes: Vec<Vec<[f64; 2]>>,
+        /// 線的粗細（0.1mm）
+        width: f64,
+        color: ThreadColor,
+        /// 封起來的圖形要不要把中間填滿
+        #[serde(default)]
+        filled: bool,
+    },
     Shape {
         shape: ShapeKind,
         width: f64,
@@ -310,6 +320,33 @@ fn build_item(
                 notes: out.notes,
             })
         }
+        Content::Draw {
+            strokes,
+            width,
+            color,
+            filled,
+        } => {
+            let polygon = draw_polygon(strokes, *width, *filled);
+            if polygon.is_empty() {
+                return Err(problem(
+                    "empty_drawing",
+                    "還沒有畫任何東西。",
+                    "請用手指在畫面上畫幾筆。",
+                ));
+            }
+            Ok(Built {
+                size: polygon_size(&polygon),
+                shapes: vec![ColoredShape {
+                    polygon,
+                    color: color.clone(),
+                }],
+                blends: vec![None],
+                smart: true,
+                reference: None,
+                min_text: false,
+                notes: Vec::new(),
+            })
+        }
         Content::Shape {
             shape,
             width,
@@ -340,6 +377,120 @@ fn build_item(
             })
         }
     }
+}
+
+/// 讓一個環的繞向固定（面積為正），這樣好幾塊疊在一起時用「非零」規則會合成一塊。
+fn orient(mut ring: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
+    let area: f64 = ring
+        .iter()
+        .zip(ring.iter().cycle().skip(1))
+        .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+        .sum();
+    if area < 0.0 {
+        ring.reverse();
+    }
+    ring
+}
+
+/// 手繪的點通常抖、而且很密：先抹掉太近的點，再用兩輪切角讓曲線順。
+fn smooth_stroke(points: &[[f64; 2]], min_gap: f64) -> Vec<[f64; 2]> {
+    let mut pts: Vec<[f64; 2]> = Vec::new();
+    for &p in points {
+        if pts
+            .last()
+            .is_none_or(|q| (q[0] - p[0]).hypot(q[1] - p[1]) >= min_gap)
+        {
+            pts.push(p);
+        }
+    }
+    if pts.len() < 3 {
+        return pts;
+    }
+    for _ in 0..2 {
+        let mut next = vec![pts[0]];
+        for w in pts.windows(2) {
+            next.push([
+                0.75 * w[0][0] + 0.25 * w[1][0],
+                0.75 * w[0][1] + 0.25 * w[1][1],
+            ]);
+            next.push([
+                0.25 * w[0][0] + 0.75 * w[1][0],
+                0.25 * w[0][1] + 0.75 * w[1][1],
+            ]);
+        }
+        next.push(*pts.last().unwrap());
+        pts = next;
+    }
+    pts
+}
+
+/// 一筆線加上粗細，變成一塊形狀：每一小段一個長方形，轉角與兩端用圓形接起來。
+fn stroke_pieces(pts: &[[f64; 2]], width: f64) -> Vec<Vec<[f64; 2]>> {
+    let r = width / 2.0;
+    let disc = |c: [f64; 2]| -> Vec<[f64; 2]> {
+        orient(
+            (0..16)
+                .map(|i| {
+                    let a = std::f64::consts::TAU * i as f64 / 16.0;
+                    [c[0] + r * a.cos(), c[1] + r * a.sin()]
+                })
+                .collect(),
+        )
+    };
+    let mut out: Vec<Vec<[f64; 2]>> = Vec::new();
+    if let [only] = pts {
+        out.push(disc(*only));
+        return out;
+    }
+    for w in pts.windows(2) {
+        let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
+        let len = dx.hypot(dy);
+        if len < 1e-9 {
+            continue;
+        }
+        let (nx, ny) = (-dy / len * r, dx / len * r);
+        out.push(orient(vec![
+            [w[0][0] + nx, w[0][1] + ny],
+            [w[1][0] + nx, w[1][1] + ny],
+            [w[1][0] - nx, w[1][1] - ny],
+            [w[0][0] - nx, w[0][1] - ny],
+        ]));
+    }
+    // 轉角用圓接起來；為了不產生太多環，只在方向變化大的地方加
+    for i in 0..pts.len() {
+        let turn = if i == 0 || i == pts.len() - 1 {
+            true
+        } else {
+            let a = (pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+            let b = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+            let cos = (a.0 * b.0 + a.1 * b.1) / (a.0.hypot(a.1) * b.0.hypot(b.1)).max(1e-9);
+            cos < 0.97
+        };
+        if turn {
+            out.push(disc(pts[i]));
+        }
+    }
+    out
+}
+
+/// 手繪的所有筆畫合成一塊多邊形。封起來的圖形選了「填滿」時，連中間一起填。
+fn draw_polygon(strokes: &[Vec<[f64; 2]>], width: f64, filled: bool) -> Polygon {
+    let width = width.max(1.0);
+    let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
+    for stroke in strokes {
+        let pts = smooth_stroke(stroke, width * 0.25);
+        if pts.is_empty() {
+            continue;
+        }
+        rings.extend(stroke_pieces(&pts, width));
+        let closed = pts.len() >= 8
+            && (pts[0][0] - pts[pts.len() - 1][0]).hypot(pts[0][1] - pts[pts.len() - 1][1])
+                <= width * 2.0;
+        if filled && closed {
+            rings.push(orient(pts.clone()));
+        }
+    }
+    Polygon::new(rings).normalized()
 }
 
 /// 單行得縮到比這個倍率還小，就考慮改成分行。

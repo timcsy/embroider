@@ -406,3 +406,168 @@ fn 短的名字不會被分行() {
     );
     assert!(!r.preview.adjustments.iter().any(|m| m.code == "wrapped"));
 }
+
+fn draw(strokes: Vec<Vec<[f64; 2]>>, width: f64, filled: bool) -> Item {
+    Item {
+        id: "d".into(),
+        content: Content::Draw {
+            strokes,
+            width,
+            color: red(),
+            filled,
+        },
+        x: 0.0,
+        y: 0.0,
+        rotation: 0.0,
+        scale: 1.0,
+    }
+}
+
+#[test]
+fn 手繪直線_粗細與長度相符() {
+    let it = draw(vec![vec![[-300.0, 0.0], [300.0, 0.0]]], 30.0, false);
+    let r = build_composite(&fonts(), &req(vec![it], "b70-large"), &[]);
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    let (x0, y0, x1, y1) = bounds(&r);
+    assert!((x1 - x0 - 600.0).abs() < 60.0, "長 {}", x1 - x0);
+    assert!(y1 - y0 < 60.0, "粗 {}", y1 - y0);
+    assert!(
+        (r.items[0].width - 630.0).abs() < 40.0,
+        "{}",
+        r.items[0].width
+    );
+}
+
+#[test]
+fn 手繪很細的線走單線平針_針數很少() {
+    let thin = draw(vec![vec![[-300.0, 0.0], [300.0, 0.0]]], 6.0, false);
+    let thick = draw(vec![vec![[-300.0, 0.0], [300.0, 0.0]]], 30.0, false);
+    let n = |it: &Item| {
+        build_composite(&fonts(), &req(vec![it.clone()], "b70-large"), &[])
+            .preview
+            .plan
+            .stitches
+            .len()
+    };
+    assert!(n(&thin) < n(&thick), "細線 {} 粗線 {}", n(&thin), n(&thick));
+}
+
+#[test]
+fn 手繪抖動的線會被抹順_仍然合法() {
+    let wobbly: Vec<[f64; 2]> = (0..80)
+        .map(|i| {
+            let x = i as f64 * 8.0 - 320.0;
+            [x, (i as f64 * 1.7).sin() * 4.0 + (i % 2) as f64 * 3.0]
+        })
+        .collect();
+    let r = build_composite(
+        &fonts(),
+        &req(vec![draw(vec![wobbly], 25.0, false)], "b70-large"),
+        &[],
+    );
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    assert!(validate_plan(&r.preview.plan, &hoop("b70-large")).is_ok());
+}
+
+fn circle_stroke(r: f64) -> Vec<[f64; 2]> {
+    (0..=48)
+        .map(|i| {
+            let a = std::f64::consts::TAU * i as f64 / 48.0;
+            [r * a.cos(), r * a.sin()]
+        })
+        .collect()
+}
+
+fn stitches_inside(r: &stitch_compose::CompositeResult, radius: f64) -> usize {
+    r.preview
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| {
+            s.kind == StitchKind::Stitch && ((s.x * s.x + s.y * s.y) as f64).sqrt() < radius
+        })
+        .count()
+}
+
+#[test]
+fn 手繪封閉圖形選填滿才會填中間() {
+    let hollow = build_composite(
+        &fonts(),
+        &req(
+            vec![draw(vec![circle_stroke(250.0)], 25.0, false)],
+            "b70-large",
+        ),
+        &[],
+    );
+    let filled = build_composite(
+        &fonts(),
+        &req(
+            vec![draw(vec![circle_stroke(250.0)], 25.0, true)],
+            "b70-large",
+        ),
+        &[],
+    );
+    assert_eq!(stitches_inside(&hollow, 150.0), 0, "空心中間不該有針");
+    assert!(stitches_inside(&filled, 150.0) > 50, "填滿中間要有針");
+}
+
+#[test]
+fn 手繪沒封起來的線就算選填滿也不填() {
+    let arc: Vec<[f64; 2]> = circle_stroke(250.0).into_iter().take(30).collect();
+    let r = build_composite(
+        &fonts(),
+        &req(vec![draw(vec![arc], 25.0, true)], "b70-large"),
+        &[],
+    );
+    assert_eq!(stitches_inside(&r, 150.0), 0);
+}
+
+#[test]
+fn 手繪只點一下變成一個圓點() {
+    let r = build_composite(
+        &fonts(),
+        &req(vec![draw(vec![vec![[0.0, 0.0]]], 40.0, false)], "b70-large"),
+        &[],
+    );
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    assert!(!r.preview.plan.stitches.is_empty());
+}
+
+#[test]
+fn 手繪多筆都繡出來() {
+    let strokes = vec![
+        vec![[-300.0, -200.0], [300.0, -200.0]],
+        vec![[-300.0, 200.0], [300.0, 200.0]],
+    ];
+    let r = build_composite(
+        &fonts(),
+        &req(vec![draw(strokes, 30.0, false)], "b70-large"),
+        &[],
+    );
+    let (_, y0, _, y1) = bounds(&r);
+    assert!(y1 - y0 > 350.0, "兩條線要分開：{}", y1 - y0);
+}
+
+#[test]
+fn 手繪沒有筆畫時回報這個物件的問題() {
+    let r = build_composite(
+        &fonts(),
+        &req(
+            vec![draw(vec![], 30.0, false), circle("c", 300.0, 0.0, 0.0)],
+            "b70-large",
+        ),
+        &[],
+    );
+    assert!(r.items[0].problem.is_some());
+    assert!(r.preview.blocked.is_none());
+}
+
+#[test]
+fn 手繪可以旋轉與縮放() {
+    let mut it = draw(vec![vec![[-300.0, 0.0], [300.0, 0.0]]], 30.0, false);
+    it.rotation = 90.0;
+    it.scale = 0.5;
+    let r = build_composite(&fonts(), &req(vec![it], "b70-large"), &[]);
+    let (x0, y0, x1, y1) = bounds(&r);
+    assert!((y1 - y0) > 250.0 && (x1 - x0) < 60.0, "{x0} {y0} {x1} {y1}");
+}

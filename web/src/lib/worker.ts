@@ -28,6 +28,7 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
   listFormats: core.listFormats,
   buildTextPreview: core.buildTextPreview,
   buildImagePreview: core.buildImagePreview,
+  buildCompositePreview: core.buildCompositePreview,
   suggestColorCount: core.suggestColorCount,
   encodeAll: core.encodeAll,
 }

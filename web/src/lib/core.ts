@@ -1,6 +1,8 @@
 // 核心（Rust → WASM）的載入與型別化包裝。所有函式都是純函式。
 import init, * as wasm from './wasm/stitch_wasm.js'
 import type {
+  CompositeRequest,
+  CompositeResult,
   EncodeResult,
   FontEntry,
   Hoop,
@@ -48,6 +50,11 @@ export function listFonts(): FontEntry[] {
 
 export function buildTextPreview(request: TextRequest): PreviewResult {
   return wasm.buildTextPreview({ settings: {}, ...request }) as PreviewResult
+}
+
+/** 多物件設計。`images` 是各張圖解碼後的像素，物件用 `image` 欄位指定第幾張。 */
+export function buildCompositePreview(request: CompositeRequest, images: Uint8Array[]): CompositeResult {
+  return wasm.buildCompositePreview({ settings: {}, ...request }, images) as CompositeResult
 }
 
 /** 一次輸出多種格式。`formatIds` 為空代表所有格式。 */

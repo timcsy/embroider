@@ -111,3 +111,50 @@ export interface ImageRequest {
   hoop: Hoop
   settings?: Partial<Settings>
 }
+
+// ── 多物件設計（編輯器）──
+
+export type ShapeKind = 'circle' | 'rect' | 'heart' | 'star' | 'line'
+
+/** 送進核心的物件。位置是物件中心離框中心的偏移（0.1mm）。 */
+export type CompositeContent =
+  | { kind: 'text'; text: string; font_id: string; height: number; color: ThreadColor; max_width?: number | null }
+  | { kind: 'image'; image: number; width: number; height: number; color_count: number; simplify: number; size: number }
+  | {
+      kind: 'shape'
+      shape: ShapeKind
+      width: number
+      height: number
+      color: ThreadColor
+      filled: boolean
+      line_width: number
+    }
+
+export type CompositeItem = CompositeContent & {
+  id: string
+  x: number
+  y: number
+  rotation: number
+  scale: number
+}
+
+export interface CompositeRequest {
+  items: CompositeItem[]
+  hoop: Hoop
+  settings?: Partial<Settings>
+}
+
+export interface ItemInfo {
+  id: string
+  /** 縮放後的大小（0.1mm），還沒套用「整體縮小放進框」 */
+  width: number
+  height: number
+  /** 實際用的縮放 */
+  scale: number
+  problem: UserMessage | null
+}
+
+export interface CompositeResult {
+  preview: PreviewResult
+  items: ItemInfo[]
+}

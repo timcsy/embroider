@@ -3,6 +3,8 @@
 import * as core from './core'
 import { FONT_FILES } from './fonts'
 import type {
+  CompositeRequest,
+  CompositeResult,
   EncodeResult,
   Hoop,
   ImageRequest,
@@ -18,6 +20,7 @@ export interface CoreClient {
   listFormats(): Promise<OutputFormatInfo[]>
   buildTextPreview(req: TextRequest): Promise<PreviewResult>
   buildImagePreview(req: ImageRequest, rgba: Uint8Array): Promise<PreviewResult>
+  buildCompositePreview(req: CompositeRequest, images: Uint8Array[]): Promise<CompositeResult>
   suggestColorCount(rgba: Uint8Array, width: number, height: number): Promise<number>
   encodeAll(
     plan: StitchPlan,
@@ -54,6 +57,7 @@ export function createDirectClient(opts: DirectOptions): CoreClient {
     listFormats: async () => (await ready, core.listFormats()),
     buildTextPreview: async (req) => (await ready, core.buildTextPreview(req)),
     buildImagePreview: async (req, rgba) => (await ready, core.buildImagePreview(req, rgba)),
+    buildCompositePreview: async (req, images) => (await ready, core.buildCompositePreview(req, images)),
     suggestColorCount: async (rgba, w, h) => (await ready, core.suggestColorCount(rgba, w, h)),
     encodeAll: async (plan, hoop, ids, name, seq) =>
       (await ready, core.encodeAll(plan, hoop, ids, name, seq)),
@@ -112,6 +116,7 @@ export function createWorkerClient(): CoreClient {
     listFormats: () => call('listFormats', []),
     buildTextPreview: (req) => call('buildTextPreview', [req]),
     buildImagePreview: (req, rgba) => call('buildImagePreview', [req, rgba]),
+    buildCompositePreview: (req, images) => call('buildCompositePreview', [req, images]),
     suggestColorCount: (rgba, w, h) => call('suggestColorCount', [rgba, w, h]),
     encodeAll: (plan, hoop, ids, name, seq) => call('encodeAll', [plan, hoop, ids, name, seq]),
   }

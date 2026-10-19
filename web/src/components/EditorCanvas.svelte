@@ -6,16 +6,23 @@
   import type { EditorItem } from '../lib/editor'
   import {
     fromCanvas,
+    hitBox,
     itemBox,
+    applyZoom,
+    clampZoom,
+    MAX_ZOOM,
     pinch,
+    pinchZoom,
     resizeBy,
     rotateTo,
     rotationHandle,
     snapAngle,
     snapToCenter,
     topHit,
+    zoomAround,
     type Box,
     type Pt,
+    type Zoom,
   } from '../lib/geometry'
   import { computeView } from '../lib/preview'
   import { strings } from '../lib/strings.zh-TW'
@@ -68,7 +75,21 @@
   const ratio = $derived(hoop.width / hoop.height)
   const width = $derived(Math.max(200, Math.min(avail, maxH * ratio)))
   const height = $derived(Math.round(width / ratio))
-  const view = $derived(computeView(hoop, width, height, 14))
+  const baseView = $derived(computeView(hoop, width, height, 14))
+
+  // 放大與平移：繡框很小、細節很小，要能放大才好精準擺放
+  let zm = $state<Zoom>({ z: 1, px: 0, py: 0 })
+  const view = $derived(applyZoom(baseView, zm))
+  const setZoom = (next: Zoom) => (zm = clampZoom(baseView, next, width, height, hoop.width, hoop.height))
+  const zoomBy = (factor: number, at?: Pt) =>
+    setZoom(zoomAround(baseView, zm, at ?? { x: width / 2, y: height / 2 }, zm.z * factor))
+  const zoomFit = () => (zm = { z: 1, px: 0, py: 0 })
+  // 換框或畫布大小變了：回到看全部
+  $effect(() => {
+    void hoop.id
+    void width
+    zm = { z: 1, px: 0, py: 0 }
+  })
 
   $effect(() => {
     if (!canvas) return
@@ -76,7 +97,7 @@
     canvas.width = Math.round(width * dpr)
     canvas.height = Math.round(height * dpr)
     const ctx = canvas.getContext('2d')
-    if (ctx) drawPreview(ctx, plan, hoop, width, height, dpr)
+    if (ctx) drawPreview(ctx, plan, hoop, width, height, dpr, undefined, view)
   })
 
   const HANDLE_R = 11 // 看得到的把手半徑（像素）
@@ -147,10 +168,13 @@
     | { mode: 'move'; id: string; start: Pt; x: number; y: number }
     | { mode: 'resize'; id: string; scale: number; from: Pt }
     | { mode: 'rotate'; id: string }
+    | { mode: 'pan'; start: Pt; zm: Zoom; moved: boolean }
     | null
 
-  let drag: Drag = null
+  let drag = null as Drag
   const pointers = new Map<number, Pt>()
+  // 兩根手指落在空白處：放大縮小與平移整個畫布（落在選到的物件上才是縮放物件）
+  let canvasPinch: { zm: Zoom; a: [Pt, Pt] } | null = null
   let pinchStart: { id: string; scale: number; rotation: number; a: [Pt, Pt] } | null = null
   let guides = $state({ x: false, y: false })
 
@@ -189,10 +213,20 @@
     // 取得鍵盤焦點，但不要讓頁面跳動（手指一碰畫布頁面就捲走會很糟）
     ;(e.currentTarget as HTMLElement).focus?.({ preventScroll: true })
 
-    if (pointers.size === 2 && selected) {
+    if (pointers.size === 2) {
       const [a, b] = [...pointers.values()]
-      pinchStart = { id: selected.id, scale: selected.scale, rotation: selected.rotation, a: [a, b] }
+      const mid = fromCanvas(view, (a.x + b.x) / 2, (a.y + b.y) / 2)
+      if (selected && selectedBox && hitBox(selectedBox, mid, PAD_PX / view.scale)) {
+        pinchStart = { id: selected.id, scale: selected.scale, rotation: selected.rotation, a: [a, b] }
+      } else {
+        canvasPinch = { zm: { ...zm }, a: [a, b] }
+      }
       drag = null
+      return
+    }
+    // 滑鼠中鍵：在哪裡都可以平移
+    if ((e as PointerEvent).button === 1) {
+      drag = { mode: 'pan', start: cp, zm: { ...zm }, moved: true }
       return
     }
     if (selected && selectedBox) {
@@ -214,6 +248,9 @@
       const it = items[hit]
       if (it.id !== selectedId) onSelect(it.id)
       drag = { mode: 'move', id: it.id, start: cp, x: it.x, y: it.y }
+    } else if (zm.z > 1) {
+      // 放大後，拖空白處是平移；只是點一下才取消選取
+      drag = { mode: 'pan', start: cp, zm: { ...zm }, moved: false }
     } else {
       drag = null
       onSelect(null)
@@ -239,6 +276,11 @@
     if (!pointers.has(e.pointerId)) return hover(local(e))
     const cp = local(e)
     pointers.set(e.pointerId, cp)
+    if (canvasPinch && pointers.size >= 2) {
+      const [a, b] = [...pointers.values()]
+      setZoom(pinchZoom(baseView, canvasPinch.zm, canvasPinch.a, [a, b]))
+      return
+    }
     if (pinchStart && pointers.size >= 2) {
       const [a, b] = [...pointers.values()]
       const r = pinch(pinchStart, pinchStart.a, [a, b])
@@ -246,7 +288,15 @@
       return
     }
     if (!drag) return
-    const it = items.find((i) => i.id === drag!.id)
+    if (drag.mode === 'pan') {
+      const dx = cp.x - drag.start.x
+      const dy = cp.y - drag.start.y
+      if (Math.hypot(dx, dy) > 4) drag.moved = true
+      if (drag.moved) setZoom({ z: drag.zm.z, px: drag.zm.px + dx, py: drag.zm.py + dy })
+      return
+    }
+    const dragId = drag.id
+    const it = items.find((i) => i.id === dragId)
     if (!it) return
     if (drag.mode === 'move') {
       const dx = (cp.x - drag.start.x) / view.scale / fit
@@ -266,25 +316,34 @@
   function onUp(e: PointerEvent) {
     if (drawing) return strokeUp()
     pointers.delete(e.pointerId)
-    if (pointers.size < 2) pinchStart = null
+    if (pointers.size < 2) {
+      pinchStart = null
+      canvasPinch = null
+    }
     if (pointers.size === 0) {
+      if (drag?.mode === 'pan' && !drag.moved) onSelect(null)
       drag = null
       guides = { x: false, y: false }
     }
   }
 
+  // 滾輪（或觸控板的兩指撐開）：以游標為中心放大縮小
   function wheel(node: Element) {
     const h = (e: Event) => {
       const we = e as WheelEvent
-      if (!selected) return
       we.preventDefault()
-      onChange(selected.id, { scale: selected.scale * Math.exp(-we.deltaY / 600) }, `scale:${selected.id}`)
+      const r = node.getBoundingClientRect()
+      zoomBy(Math.exp(-we.deltaY / (we.ctrlKey ? 100 : 400)), { x: we.clientX - r.left, y: we.clientY - r.top })
     }
     node.addEventListener('wheel', h, { passive: false })
     return { destroy: () => node.removeEventListener('wheel', h) }
   }
 
   function onKey(e: KeyboardEvent) {
+    if (e.key === '0') {
+      e.preventDefault()
+      return zoomFit()
+    }
     if (!selected) return
     const step = e.shiftKey ? 50 : 10
     const move = (dx: number, dy: number) => {
@@ -315,6 +374,13 @@
 <div class="area" bind:clientWidth={avail} bind:this={area}>
   <div class="stage" style="width:{width}px;height:{height}px" role="img" aria-label={label}>
     <canvas bind:this={canvas} style="width:{width}px;height:{height}px" data-testid="preview"></canvas>
+    <div class="zoom" role="group" aria-label={strings.editor.zoomIn}>
+      <button onclick={() => zoomBy(1.4)} disabled={zm.z >= MAX_ZOOM} aria-label={strings.editor.zoomIn} data-testid="zoom-in">＋</button>
+      <button onclick={() => zoomBy(1 / 1.4)} disabled={zm.z <= 1} aria-label={strings.editor.zoomOut} data-testid="zoom-out">－</button>
+      {#if zm.z > 1}
+        <button class="fit" onclick={zoomFit} data-testid="zoom-fit">{strings.editor.zoomFit}</button>
+      {/if}
+    </div>
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <svg
       class="overlay"
@@ -396,5 +462,9 @@
   .center { fill: #1a73e8; }
   .overlay.drawing { cursor: crosshair; }
   .live { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+  .zoom { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .zoom button { min-width: 44px; min-height: 44px; border: 2px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.92); font-size: 1.3em; font-weight: 700; line-height: 1; padding: 0 8px; }
+  .zoom button:disabled { opacity: 0.35; }
+  .zoom .fit { font-size: 0.85em; }
   .guide { stroke: #e0457b; stroke-width: 1; stroke-dasharray: 5 4; }
 </style>

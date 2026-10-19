@@ -554,3 +554,111 @@ test.describe('電腦版（1440×900）', () => {
     await expect(page.getByTestId('stage')).toHaveCSS('cursor', 'default')
   })
 })
+
+// ── 畫布放大與平移 ──
+test.describe('畫布放大與平移', () => {
+  const stageBox = async (page: Page) => (await page.getByTestId('stage').boundingBox())!
+
+  test('按「放大」物件變大、「看全部」回到原樣', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const r0 = (await rectOf(page, 'item-1'))!
+    await expect(page.getByTestId('zoom-fit')).toHaveCount(0)
+    await page.getByTestId('zoom-in').click()
+    await page.getByTestId('zoom-in').click()
+    const r1 = (await rectOf(page, 'item-1'))!
+    expect(r1.width).toBeGreaterThan(r0.width * 1.8)
+    await page.getByTestId('zoom-fit').click()
+    const r2 = (await rectOf(page, 'item-1'))!
+    expect(Math.abs(r2.width - r0.width)).toBeLessThan(1)
+    await expect(page.getByTestId('zoom-fit')).toHaveCount(0)
+  })
+
+  test('滾輪以游標為中心放大；放大後拖空白處可以平移，點一下空白才取消選取', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const s = await stageBox(page)
+    const r0 = (await rectOf(page, 'item-1'))!
+    const cx = r0.x + r0.width / 2
+    const cy = r0.y + r0.height / 2
+    await page.mouse.move(cx, cy)
+    await page.mouse.wheel(0, -400)
+    const r1 = (await rectOf(page, 'item-1'))!
+    expect(r1.width).toBeGreaterThan(r0.width * 1.3)
+    // 游標在物件中心，放大後物件中心仍在游標底下
+    expect(Math.abs(r1.x + r1.width / 2 - cx)).toBeLessThan(3)
+
+    // 拖空白處平移
+    const empty = { x: s.x + 12, y: s.y + s.height - 12 }
+    await page.mouse.move(empty.x, empty.y)
+    await page.mouse.down()
+    await page.mouse.move(empty.x + 40, empty.y - 30, { steps: 5 })
+    await page.mouse.up()
+    const r2 = (await rectOf(page, 'item-1'))!
+    expect(r2.x - r1.x).toBeGreaterThan(25)
+    expect(r1.y - r2.y).toBeGreaterThan(15)
+    await expect(page.getByTestId('item-panel')).toBeVisible() // 平移不會取消選取
+
+    // 只是點一下空白：取消選取
+    await page.mouse.click(empty.x, empty.y)
+    await expect(page.getByTestId('item-panel')).toHaveCount(0)
+  })
+
+  test('放大後拖移物件仍然正確', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    await page.getByTestId('zoom-in').click()
+    await page.getByTestId('zoom-in').click()
+    const r0 = (await rectOf(page, 'item-1'))!
+    const cx = r0.x + r0.width / 2
+    const cy = r0.y + r0.height / 2
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(cx + 30, cy, { steps: 5 })
+    await page.mouse.up()
+    const r1 = (await rectOf(page, 'item-1'))!
+    expect(Math.abs(r1.x - r0.x - 30)).toBeLessThan(2)
+  })
+
+  test('兩根手指落在空白處：整個畫布放大；落在物件上才是縮放物件', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const s = await stageBox(page)
+    const r0 = (await rectOf(page, 'item-1'))!
+    const cdp = await page.context().newCDPSession(page)
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', pts: { x: number; y: number }[]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i + 1 })) })
+    // 兩指在畫布左下角的空白處撐開
+    const mx = s.x + s.width * 0.2
+    const my = s.y + s.height * 0.85
+    await touch('touchStart', [{ x: mx - 20, y: my }, { x: mx + 20, y: my }])
+    for (let i = 1; i <= 5; i++) {
+      const d = 20 + 12 * i
+      await touch('touchMove', [{ x: mx - d, y: my }, { x: mx + d, y: my }])
+    }
+    await touch('touchEnd', [])
+    const r1 = (await rectOf(page, 'item-1'))!
+    expect(r1.width).toBeGreaterThan(r0.width * 1.5)
+    // 物件自己的縮放沒有被改
+    await page.getByTestId('zoom-fit').click()
+    const r2 = (await rectOf(page, 'item-1'))!
+    expect(Math.abs(r2.width - r0.width)).toBeLessThan(2)
+  })
+
+  test('鍵盤 0 回到看全部；換框也會回到看全部', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await page.getByTestId('zoom-in').click()
+    await expect(page.getByTestId('zoom-fit')).toBeVisible()
+    await page.getByTestId('stage').focus()
+    await page.keyboard.press('0')
+    await expect(page.getByTestId('zoom-fit')).toHaveCount(0)
+    await page.getByTestId('zoom-in').click()
+    await page.getByRole('radio', { name: /小框/ }).click()
+    await expect(page.getByTestId('zoom-fit')).toHaveCount(0)
+  })
+})

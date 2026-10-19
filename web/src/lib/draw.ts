@@ -1,5 +1,5 @@
 // 把針跡畫成像真的繡線：每種顏色先畫較深的底線，再疊一層較亮的細線表現光澤。
-import { computeView, planSegments, toCanvas, type Segment } from './preview'
+import { computeView, planSegments, toCanvas, type Segment, type View } from './preview'
 import type { Hoop, StitchPlan } from './types'
 
 const CLOTH = '#f1eadb'
@@ -29,12 +29,14 @@ export function drawPreview(
   cssH: number,
   dpr: number,
   upto?: number,
+  /** 放大或平移後的畫面；沒給就是整個繡框置中 */
+  viewOverride?: View,
 ): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, cssW, cssH)
   ctx.fillStyle = '#faf6ee'
   ctx.fillRect(0, 0, cssW, cssH)
-  const view = computeView(hoop, cssW, cssH, 14)
+  const view = viewOverride ?? computeView(hoop, cssW, cssH, 14)
 
   // 布料與框
   hoopPath(ctx, hoop, view)

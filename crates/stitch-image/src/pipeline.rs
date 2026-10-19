@@ -306,6 +306,7 @@ fn object_budget(simplify: f64) -> usize {
 
 /// 圖片 → 針跡計畫。任何無法輸出的情況都以 `blocked` 回報白話原因。
 /// 圖片轉成的形狀（以圖中心為原點、實際大小 0.1mm）、各形狀的混色線，以及白話說明。
+#[derive(Clone)]
 pub struct ImageShapes {
     pub shapes: Vec<ColoredShape>,
     pub blends: Vec<Option<BlendPair>>,

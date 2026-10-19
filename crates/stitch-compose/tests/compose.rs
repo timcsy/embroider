@@ -324,3 +324,37 @@ fn 圖片壞掉只影響那個物件() {
     assert!(r.preview.blocked.is_none());
     assert!(r.items[0].problem.is_some());
 }
+
+#[test]
+fn 同一張圖移動後不必重算_第二次明顯更快() {
+    let rgba = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../stitch-image/tests/fixtures/thanks-256.rgba"),
+    )
+    .unwrap();
+    let make = |x: f64| Item {
+        id: "img".into(),
+        content: Content::Image {
+            image: 0,
+            width: 256,
+            height: 171,
+            color_count: 5,
+            simplify: 40,
+            size: 800.0,
+        },
+        x,
+        y: 0.0,
+        rotation: 0.0,
+        scale: 1.0,
+    };
+    let run = |x: f64| {
+        let t = std::time::Instant::now();
+        let r = build_composite(&fonts(), &req(vec![make(x)], "b70-large"), &[rgba.clone()]);
+        assert!(r.preview.blocked.is_none());
+        t.elapsed()
+    };
+    let first = run(0.0);
+    let second = run(100.0);
+    // 第二次只需要鋪針，不必再轉圖
+    assert!(second < first, "{first:?} → {second:?}");
+}

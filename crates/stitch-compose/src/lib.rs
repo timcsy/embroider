@@ -4,12 +4,13 @@
 //! 座標：0.1mm，以框中心為原點，y 軸向下。物件的位置是它「中心」離框中心的偏移。
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use stitch_core::hoop::Hoop;
 use stitch_core::{ThreadColor, UserMessage};
 use stitch_gen::design::{build_plan_styled, BlendPair, ColoredShape, PreviewResult, Settings};
 use stitch_gen::min_size::{enlarge_needed, MinSizeParams};
 use stitch_geom::Polygon;
-use stitch_image::{image_shapes, ImageRequest};
+use stitch_image::{image_shapes, ImageRequest, ImageShapes};
 use stitch_text::{text_to_polygon, FontSet, Layout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,10 +285,7 @@ fn build_item(
                 },
                 settings: settings.clone(),
             };
-            let out = image_shapes(&req).map_err(|b| {
-                b.blocked
-                    .unwrap_or_else(|| problem("bad_image", "這張圖打不開。", "請換一張圖。"))
-            })?;
+            let out = cached_image_shapes(&req)?;
             let long = (*width).max(*height) as f64;
             Ok(Built {
                 size: [*size * *width as f64 / long, *size * *height as f64 / long],
@@ -329,6 +327,43 @@ fn build_item(
             })
         }
     }
+}
+
+/// 圖片轉形狀很花時間；拖移、旋轉、縮放物件時圖片本身沒變，用快取避免每次重算。
+fn cached_image_shapes(req: &ImageRequest) -> Result<ImageShapes, UserMessage> {
+    thread_local! {
+        static CACHE: RefCell<Vec<(u64, ImageShapes)>> = const { RefCell::new(Vec::new()) };
+    }
+    const KEEP: usize = 4;
+    // FNV-1a：像素加上所有會影響結果的設定
+    let mut h: u64 = 0xcbf29ce484222325;
+    let mut mix = |bytes: &[u8]| {
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    };
+    mix(&req.rgba);
+    mix(format!(
+        "{}x{} {} {} {} {:?}",
+        req.width, req.height, req.color_count, req.simplify, req.size, req.settings
+    )
+    .as_bytes());
+    if let Some(hit) = CACHE.with(|c| c.borrow().iter().find(|e| e.0 == h).map(|e| e.1.clone())) {
+        return Ok(hit);
+    }
+    let out = image_shapes(req).map_err(|b| {
+        b.blocked
+            .unwrap_or_else(|| problem("bad_image", "這張圖打不開。", "請換一張圖。"))
+    })?;
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.push((h, out.clone()));
+        if c.len() > KEEP {
+            c.remove(0);
+        }
+    });
+    Ok(out)
 }
 
 fn hoop_placeholder() -> Hoop {

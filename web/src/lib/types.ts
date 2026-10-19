@@ -127,6 +127,11 @@ export type CompositeContent =
       max_width?: number | null
       /** 整行字跨過幾度：正的往上拱、負的往下彎、0 是平的 */
       curve: number
+      align: 'left' | 'center' | 'right'
+      /** 字距：每個字後面多留幾個字高 */
+      letter_spacing: number
+      /** 行距：幾倍字高 */
+      line_height: number
     }
   | { kind: 'draw'; strokes: [number, number][][]; width: number; color: ThreadColor; filled: boolean }
   | { kind: 'image'; image: number; width: number; height: number; color_count: number; simplify: number; size: number }

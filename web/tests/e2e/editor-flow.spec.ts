@@ -955,3 +955,43 @@ test.describe('範本', () => {
     await expect(page.getByTestId('save')).toBeEnabled()
   })
 })
+
+// ── 文字樣式 ──
+test.describe('文字樣式', () => {
+  const widthCm = async (page: Page) => {
+    const text = (await page.getByTestId('size').textContent()) ?? ''
+    return Number(/約 ([\d.]+) ×/.exec(text)?.[1])
+  }
+  const heightCm = async (page: Page) => {
+    const text = (await page.getByTestId('size').textContent()) ?? ''
+    return Number(/× ([\d.]+) 公分/.exec(text)?.[1])
+  }
+
+  test('字距拉鬆整行變寬；行距拉開整段變高', async ({ page }) => {
+    await open(page)
+    const t = await addText(page)
+    await t.fill('王小明\n的家')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const w0 = await widthCm(page)
+    const h0 = await heightCm(page)
+    await page.getByRole('slider', { name: '字和字的距離' }).fill('0.5')
+    await expect.poll(() => widthCm(page), { timeout: 30_000 }).toBeGreaterThan(w0 + 0.8)
+    await page.getByRole('slider', { name: '行和行的距離' }).fill('2.1')
+    await expect.poll(() => heightCm(page), { timeout: 30_000 }).toBeGreaterThan(h0 + 0.8)
+  })
+
+  test('多行對齊：靠左、置中、靠右三個選項，選到的打勾', async ({ page }) => {
+    await open(page)
+    const t = await addText(page)
+    await t.fill('王小明的家\n王')
+    await expect(page.getByTestId('align-text-center')).toHaveAttribute('aria-checked', 'true')
+    await page.getByTestId('align-text-left').click()
+    await expect(page.getByTestId('align-text-left')).toHaveAttribute('aria-checked', 'true')
+    await page.getByTestId('align-text-right').click()
+    await expect(page.getByTestId('align-text-right')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('save')).toBeEnabled()
+    await page.getByRole('button', { name: '上一步' }).click()
+    await expect(page.getByTestId('align-text-left')).toHaveAttribute('aria-checked', 'true')
+  })
+})

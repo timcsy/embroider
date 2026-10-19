@@ -715,3 +715,26 @@ describe('多選：綁成一組、一起移動', () => {
     expect(locked.items[1].x).toBe(100)
   })
 })
+
+describe('文字樣式：對齊、字距、行距', () => {
+  it('預設：置中、字距 0、行距 1.3', () => {
+    const d = addText(emptyDoc(hoop.id))
+    expect(d.items[0]).toMatchObject({ align: 'center', letterSpacing: 0, lineHeight: 1.3 })
+  })
+
+  it('帶進請求', () => {
+    let d = addText(emptyDoc(hoop.id))
+    d = updateItem(d, d.items[0].id, { text: '字', align: 'left', letterSpacing: 0.2, lineHeight: 1.6 } as Partial<EditorItem>)
+    expect(toRequest(d, hoop, []).request.items[0]).toMatchObject({
+      kind: 'text',
+      align: 'left',
+      letter_spacing: 0.2,
+      line_height: 1.6,
+    })
+  })
+
+  it('舊的存檔沒有這些欄位：用預設值', () => {
+    const it = fromLegacy({ mode: 'text', text: '王' })
+    expect(it).toMatchObject({ align: 'center', letterSpacing: 0, lineHeight: 1.3 })
+  })
+})

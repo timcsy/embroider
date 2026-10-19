@@ -430,7 +430,7 @@
       // 舊的存檔沒有翻轉、組、弧形這些欄位：缺的補預設值
       const defaults: Record<string, unknown> = { flipX: false, flipY: false, groupId: null, locked: false }
       items = (p.items as EditorItem[]).map((it) => {
-        const filled = { ...defaults, ...(it.kind === 'text' ? { curve: 0 } : {}), ...it } as EditorItem
+        const filled = { ...defaults, ...(it.kind === 'text' ? { curve: 0, align: 'center', letterSpacing: 0, lineHeight: 1.3 } : {}), ...it } as EditorItem
         return filled.kind === 'image' ? { ...filled, imageId: map.get(filled.imageId) ?? filled.imageId } : filled
       })
     } else {
@@ -887,6 +887,29 @@
             </div>
 
             {#if fontProblem}<Notice message={fontProblem} tone="warn" />{/if}
+
+            <h3>{strings.editor.align}</h3>
+            <div class="chips" role="radiogroup" aria-label={strings.editor.align}>
+              {#each [['left', strings.editor.alignLeftText], ['center', strings.editor.alignCenterText], ['right', strings.editor.alignRightText]] as [v, label] (v)}
+                <button role="radio" aria-checked={it.align === v} class:on={it.align === v} onclick={() => patch(it.id, { align: v } as Partial<EditorItem>)} data-testid="align-text-{v}">{label}</button>
+              {/each}
+            </div>
+
+            <h3>{strings.editor.letterSpacing}</h3>
+            <div class="size">
+              <span class="end">{strings.editor.letterTight}</span>
+              <input type="range" min="-0.1" max="0.6" step="0.05" value={it.letterSpacing} aria-label={strings.editor.letterSpacing}
+                oninput={(e) => patch(it.id, { letterSpacing: Number(e.currentTarget.value) } as Partial<EditorItem>, 'spacing')} />
+              <span class="end">{strings.editor.letterLoose}</span>
+            </div>
+
+            <h3>{strings.editor.lineHeight}</h3>
+            <div class="size">
+              <span class="end">{strings.editor.lineTight}</span>
+              <input type="range" min="0.9" max="2.2" step="0.1" value={it.lineHeight} aria-label={strings.editor.lineHeight}
+                oninput={(e) => patch(it.id, { lineHeight: Number(e.currentTarget.value) } as Partial<EditorItem>, 'lineheight')} />
+              <span class="end">{strings.editor.lineLoose}</span>
+            </div>
 
             <h3>{strings.editor.curve}</h3>
             <div class="size">

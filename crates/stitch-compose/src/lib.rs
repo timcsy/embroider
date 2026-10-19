@@ -11,7 +11,7 @@ use stitch_gen::design::{build_plan_styled, BlendPair, ColoredShape, PreviewResu
 use stitch_gen::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use stitch_geom::Polygon;
 use stitch_image::{image_shapes, ImageRequest, ImageShapes};
-use stitch_text::{text_to_polygon, FontSet, Layout};
+use stitch_text::{text_to_polygon_styled, Align, FontSet, Layout, TextStyle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +39,15 @@ pub enum Content {
         /// 繞成弧形：整行字跨過幾度（正的像彩虹往上拱，負的像笑臉往下彎，0 是平的）
         #[serde(default)]
         curve: f64,
+        /// 多行時每行怎麼對齊
+        #[serde(default)]
+        align: TextAlign,
+        /// 字距：每個字後面多留幾個字高（可以是負的）
+        #[serde(default)]
+        letter_spacing: f64,
+        /// 行距：幾倍字高
+        #[serde(default = "default_line_height")]
+        line_height: f64,
     },
     Image {
         /// 對應 `build_composite` 的 `images` 第幾張
@@ -71,6 +80,19 @@ pub enum Content {
         #[serde(default = "default_line_width")]
         line_width: f64,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextAlign {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+fn default_line_height() -> f64 {
+    1.3
 }
 
 fn yes() -> bool {
@@ -257,14 +279,26 @@ fn build_item(
             color,
             max_width,
             curve,
+            align,
+            letter_spacing,
+            line_height,
         } => {
+            let style = TextStyle {
+                align: match align {
+                    TextAlign::Left => Align::Left,
+                    TextAlign::Center => Align::Center,
+                    TextAlign::Right => Align::Right,
+                },
+                letter_spacing: *letter_spacing,
+                line_height: *line_height,
+            };
             let layout = max_width.map_or(Layout::SingleLine, |w| Layout::Wrap { max_width: w });
-            let mut laid = text_to_polygon(fonts, font_id, text, *height, layout)?;
+            let mut laid = text_to_polygon_styled(fonts, font_id, text, *height, layout, style)?;
             let mut notes = Vec::new();
             if max_width.is_none() {
-                if let Some(wrapped) =
-                    wrap_if_cramped(fonts, font_id, text, *height, &laid, item.scale, hoop)
-                {
+                if let Some(wrapped) = wrap_if_cramped(
+                    fonts, font_id, text, *height, &laid, item.scale, hoop, style,
+                ) {
                     laid = wrapped;
                     notes.push(UserMessage::new(
                         "wrapped",
@@ -601,6 +635,7 @@ fn wrap_if_cramped(
     single: &stitch_text::TextLayout,
     scale: f64,
     hoop: &Hoop,
+    style: TextStyle,
 ) -> Option<stitch_text::TextLayout> {
     let inner = match hoop.shape {
         stitch_core::hoop::HoopShape::Rect => 1.0,
@@ -619,7 +654,7 @@ fn wrap_if_cramped(
     if eff_single >= WRAP_IF_BELOW {
         return None;
     }
-    let wrapped = text_to_polygon(
+    let wrapped = text_to_polygon_styled(
         fonts,
         font_id,
         text,
@@ -627,6 +662,7 @@ fn wrap_if_cramped(
         Layout::Wrap {
             max_width: safe_w / user,
         },
+        style,
     )
     .ok()?;
     (fit(&wrapped) > eff_single * WRAP_MUST_GAIN).then_some(wrapped)

@@ -30,6 +30,9 @@ fn text(id: &str, s: &str, x: f64, y: f64) -> Item {
             color: red(),
             max_width: None,
             curve: 0.0,
+            align: stitch_compose::TextAlign::Center,
+            letter_spacing: 0.0,
+            line_height: 1.3,
         },
         x,
         y,
@@ -880,4 +883,96 @@ fn 量測_五千點的長手繪() {
         })
         .collect();
     elapsed_ms(vec![draw(vec![pts], 25.0, false)], &[]);
+}
+
+fn styled(text_: &str, align: stitch_compose::TextAlign, spacing: f64, lh: f64) -> Item {
+    let mut t = text("s", text_, 0.0, 0.0);
+    if let Content::Text {
+        align: a,
+        letter_spacing: ls,
+        line_height: l,
+        ..
+    } = &mut t.content
+    {
+        *a = align;
+        *ls = spacing;
+        *l = lh;
+    }
+    t
+}
+
+#[test]
+fn 字距加大整行變寬() {
+    let w = |sp: f64| {
+        let r = build_composite(
+            &fonts(),
+            &req(
+                vec![styled("王小明", stitch_compose::TextAlign::Center, sp, 1.3)],
+                "b70-large",
+            ),
+            &[],
+        );
+        r.items[0].width
+    };
+    assert!(w(0.4) > w(0.0) + 100.0, "{} {}", w(0.0), w(0.4));
+}
+
+#[test]
+fn 靠左與置中的多行文字外框一樣但針跡位置不同() {
+    let mean = |a: stitch_compose::TextAlign| {
+        let r = build_composite(
+            &fonts(),
+            &req(vec![styled("王小明的家\n王", a, 0.0, 1.3)], "b70-large"),
+            &[],
+        );
+        assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+        // 第二行（較短）在下半部：看下半部針的平均 x
+        let ys: Vec<i32> = r
+            .preview
+            .plan
+            .stitches
+            .iter()
+            .filter(|s| s.kind == StitchKind::Stitch)
+            .map(|s| s.y)
+            .collect();
+        let mid = (ys.iter().min().unwrap() + ys.iter().max().unwrap()) / 2;
+        let xs: Vec<f64> = r
+            .preview
+            .plan
+            .stitches
+            .iter()
+            .filter(|s| s.kind == StitchKind::Stitch && s.y > mid + 50)
+            .map(|s| s.x as f64)
+            .collect();
+        xs.iter().sum::<f64>() / xs.len() as f64
+    };
+    let (left, center, right) = (
+        mean(stitch_compose::TextAlign::Left),
+        mean(stitch_compose::TextAlign::Center),
+        mean(stitch_compose::TextAlign::Right),
+    );
+    assert!(left < center - 50.0, "{left} {center}");
+    assert!(right > center + 50.0, "{right} {center}");
+}
+
+#[test]
+fn 行距加大整段變高() {
+    let h = |lh: f64| {
+        build_composite(
+            &fonts(),
+            &req(
+                vec![styled(
+                    "王\n小\n明",
+                    stitch_compose::TextAlign::Center,
+                    0.0,
+                    lh,
+                )],
+                "b70-large",
+            ),
+            &[],
+        )
+        .items[0]
+            .height
+    };
+    assert!(h(2.0) > h(1.3) + 200.0);
 }

@@ -30,6 +30,12 @@ export interface TextItem extends Base {
   colorIdx: number
   /** 整行字跨過幾度（正的往上拱、負的往下彎，0 是平的） */
   curve: number
+  /** 多行時每行怎麼對齊 */
+  align: 'left' | 'center' | 'right'
+  /** 字距：每個字後面多留幾個字高（可以是負的） */
+  letterSpacing: number
+  /** 行距：幾倍字高 */
+  lineHeight: number
 }
 
 export interface ImageItem extends Base {
@@ -132,6 +138,9 @@ export function addText(doc: EditorDoc): EditorDoc {
     heightCm: 2.5,
     colorIdx: 0,
     curve: 0,
+    align: 'center',
+    letterSpacing: 0,
+    lineHeight: 1.3,
   }))
 }
 
@@ -350,6 +359,9 @@ export function toRequest(
         height: cm(it.heightCm),
         color: THREADS[it.colorIdx] ?? THREADS[0],
         curve: it.curve,
+        align: it.align,
+        letter_spacing: it.letterSpacing,
+        line_height: it.lineHeight,
       })
     } else if (it.kind === 'draw') {
       out.push({
@@ -411,6 +423,9 @@ export function fromLegacy(p: Record<string, unknown>, imageId?: string): Editor
       heightCm: num(p.sizeCm, 2.5),
       colorIdx: num(p.colorIdx, 0),
       curve: 0,
+      align: 'center',
+      letterSpacing: 0,
+      lineHeight: 1.3,
     }
   }
   if (p.mode === 'image' && imageId) {

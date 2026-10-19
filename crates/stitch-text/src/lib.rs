@@ -5,7 +5,7 @@ mod font;
 mod layout;
 
 pub use font::{FontInfo, FontSet};
-pub use layout::{text_to_polygon, Layout, TextLayout};
+pub use layout::{text_to_polygon, text_to_polygon_styled, Align, Layout, TextLayout, TextStyle};
 mod pipeline;
 
 pub use pipeline::{build_text_preview, LayoutSpec, TextRequest};

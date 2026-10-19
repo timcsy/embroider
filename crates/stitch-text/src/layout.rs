@@ -21,6 +21,39 @@ pub struct TextLayout {
 }
 
 const LINE_HEIGHT: f64 = 1.3;
+
+/// 多行文字每一行怎麼對齊。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+/// 文字的樣式：對齊、字距（每個字後面多留幾個字高，可以是負的）、行距（幾倍字高）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+    pub align: Align,
+    pub letter_spacing: f64,
+    pub line_height: f64,
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            align: Align::Center,
+            letter_spacing: 0.0,
+            line_height: LINE_HEIGHT,
+        }
+    }
+}
+
+/// 字距最小不能把相鄰的字疊在一起（字高的 -0.15 倍），最大一個字高；行距 0.8 到 3 倍字高。
+const MIN_SPACING: f64 = -0.15;
+const MAX_SPACING: f64 = 1.0;
+const MIN_LINE_HEIGHT: f64 = 0.8;
+const MAX_LINE_HEIGHT: f64 = 3.0;
 const FLATTEN_TOLERANCE: f64 = 0.2;
 
 struct Glyph {
@@ -84,6 +117,20 @@ pub fn text_to_polygon(
     height: f64,
     layout: Layout,
 ) -> Result<TextLayout, UserMessage> {
+    text_to_polygon_styled(fonts, font_id, text, height, layout, TextStyle::default())
+}
+
+/// 同 `text_to_polygon`，另外可以指定對齊、字距與行距。
+pub fn text_to_polygon_styled(
+    fonts: &FontSet,
+    font_id: &str,
+    text: &str,
+    height: f64,
+    layout: Layout,
+    style: TextStyle,
+) -> Result<TextLayout, UserMessage> {
+    let spacing = style.letter_spacing.clamp(MIN_SPACING, MAX_SPACING) * height;
+    let line_height = style.line_height.clamp(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT);
     if text.trim().is_empty() {
         return Err(err("empty_text", "還沒有輸入文字。", "請先輸入想繡的字。"));
     }
@@ -110,7 +157,7 @@ pub fn text_to_polygon(
                 let face = fonts.face(fi);
                 if let Some(id) = face.glyph_index(ch) {
                     let scale = height / face.units_per_em() as f64;
-                    let adv = face.glyph_hor_advance(id).unwrap_or(0) as f64 * scale;
+                    let adv = face.glyph_hor_advance(id).unwrap_or(0) as f64 * scale + spacing;
                     found = Some((fi, id, adv));
                     break;
                 }
@@ -169,14 +216,29 @@ pub fn text_to_polygon(
         }
     }
 
+    // 每行的寬度（去掉行尾空白；最後一個字後面的字距不算）
+    let widths: Vec<f64> = lines
+        .iter()
+        .map(|line| {
+            let n = line.iter().rposition(|g| g.ch != ' ').map_or(0, |i| i + 1);
+            (line[..n].iter().map(|g| g.advance).sum::<f64>() - if n > 0 { spacing } else { 0.0 })
+                .max(0.0)
+        })
+        .collect();
+    let widest = widths.iter().cloned().fold(0.0, f64::max);
+
     // 排版與取輪廓
     let mut rings = Vec::new();
     for (li, line) in lines.iter().enumerate() {
         let trimmed_len = line.iter().rposition(|g| g.ch != ' ').map_or(0, |i| i + 1);
         let line = &line[..trimmed_len];
-        let width: f64 = line.iter().map(|g| g.advance).sum();
-        let mut pen = -width / 2.0;
-        let baseline = li as f64 * height * LINE_HEIGHT;
+        let width = widths[li];
+        let mut pen = match style.align {
+            Align::Left => -widest / 2.0,
+            Align::Center => -width / 2.0,
+            Align::Right => widest / 2.0 - width,
+        };
+        let baseline = li as f64 * height * line_height;
         for g in line {
             let face = fonts.face(g.font);
             let mut b = Builder {

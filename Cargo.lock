@@ -609,6 +609,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "stitch-compose"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "stitch-core",
+ "stitch-gen",
+ "stitch-geom",
+ "stitch-image",
+ "stitch-text",
+]
+
+[[package]]
 name = "stitch-core"
 version = "0.1.0"
 dependencies = [
@@ -676,6 +688,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "stitch-compose",
  "stitch-core",
  "stitch-formats",
  "stitch-gen",

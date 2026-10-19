@@ -7,6 +7,7 @@ use stitch_core::{validate_plan, StitchPlan, UserMessage};
 use stitch_formats::filename::{file_name, file_stem};
 use stitch_formats::Registry;
 
+pub use stitch_compose::{CompositeRequest, CompositeResult};
 pub use stitch_gen::design::{PreviewResult, Settings};
 pub use stitch_image::ImageRequest;
 pub use stitch_text::{FontSet, LayoutSpec, TextRequest};
@@ -84,6 +85,15 @@ pub fn suggest_color_count(rgba: &[u8], width: usize, height: usize) -> usize {
 /// 線色色票（中文色名）。
 pub fn list_thread_colors() -> Vec<stitch_core::ThreadColor> {
     stitch_core::palette::threads()
+}
+
+/// 多物件設計（文字、圖片、形狀）→ 針跡計畫與各物件的實際大小。
+pub fn build_composite_preview(
+    fonts: &FontSet,
+    req: &CompositeRequest,
+    images: &[Vec<u8>],
+) -> CompositeResult {
+    stitch_compose::build_composite(fonts, req, images)
 }
 
 pub fn build_text_preview(fonts: &FontSet, req: &TextRequest) -> PreviewResult {

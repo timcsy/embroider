@@ -305,11 +305,23 @@ fn object_budget(simplify: f64) -> usize {
 }
 
 /// 圖片 → 針跡計畫。任何無法輸出的情況都以 `blocked` 回報白話原因。
-pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
+/// 圖片轉成的形狀（以圖中心為原點、實際大小 0.1mm）、各形狀的混色線，以及白話說明。
+pub struct ImageShapes {
+    pub shapes: Vec<ColoredShape>,
+    pub blends: Vec<Option<BlendPair>>,
+    pub notes: Vec<UserMessage>,
+}
+
+/// 圖片 → 形狀。不放進框、不鋪針，讓呼叫端決定怎麼擺。無法轉換時回傳白話原因（`blocked`）。
+pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, PreviewResult> {
     let simplify = req.simplify.min(100) as f64;
     let (rgba, w, h) = downscale(&req.rgba, req.width, req.height);
     if rgba.len() != req.rgba.len() && req.rgba.len() != req.width * req.height * 4 {
-        return blocked("bad_image", "這張圖打不開。", "請換一張圖，或重新選一次。");
+        return Err(blocked(
+            "bad_image",
+            "這張圖打不開。",
+            "請換一張圖，或重新選一次。",
+        ));
     }
 
     // 人會注意的地方（中央、對比強、顯眼）細節多留，不顯眼的角落零碎多去
@@ -318,7 +330,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     let rgba = edge_preserving_smooth(&rgba, w, h, 20 + (simplify * 0.6) as u32);
     let q = match quantize(&rgba, w, h, req.color_count) {
         Ok(q) => q,
-        Err(m) => return PreviewResult::blocked(m),
+        Err(m) => return Err(PreviewResult::blocked(m)),
     };
     let mut labels = q.labels.clone();
     let centers = merge_close(&mut labels, &q.centers);
@@ -365,11 +377,11 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
     }
     let before = labels.iter().filter(|&&l| l >= 0).count();
     if before == 0 {
-        return blocked(
+        return Err(blocked(
             "single_color",
             "這張圖幾乎只有一種顏色，沒有可以繡出圖案的地方。",
             "請換一張有好幾種顏色、圖案分明的圖。",
-        );
+        ));
     }
 
     majority_filter(&mut labels, w, h, 1 + (simplify / 40.0) as usize);
@@ -433,11 +445,11 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         ));
     }
     if shapes.is_empty() {
-        return blocked(
+        return Err(blocked(
             "nothing_left",
             "圖案太細碎了，簡化之後什麼都沒剩下。",
             "請把「簡化程度」調低一點，或把圖放大一點。",
-        );
+        ));
     }
     // 大面積先繡，細節疊在上面
     shapes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
@@ -469,6 +481,22 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         ));
     }
 
+    Ok(ImageShapes {
+        shapes,
+        blends,
+        notes,
+    })
+}
+
+pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
+    let ImageShapes {
+        shapes,
+        blends,
+        mut notes,
+    } = match image_shapes(req) {
+        Ok(v) => v,
+        Err(blocked) => return blocked,
+    };
     let mut result = build_plan_with_blends(
         &shapes,
         &blends,

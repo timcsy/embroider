@@ -7,6 +7,7 @@ members = [
     "crates/stitch-gen",
     "crates/stitch-text",
     "crates/stitch-image",
+    "crates/stitch-compose",
     "crates/stitch-wasm",
     "crates/stitch-cli",
 ]
@@ -31,6 +32,7 @@ stitch-geom = { path = "crates/stitch-geom" }
 stitch-gen = { path = "crates/stitch-gen" }
 stitch-text = { path = "crates/stitch-text" }
 stitch-image = { path = "crates/stitch-image" }
+stitch-compose = { path = "crates/stitch-compose" }
 
 [profile.release]
 opt-level = "s"

@@ -1,0 +1,13 @@
+[package]
+name = "stitch-compose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stitch-core.workspace = true
+stitch-geom.workspace = true
+stitch-gen.workspace = true
+stitch-text.workspace = true
+stitch-image.workspace = true
+serde.workspace = true

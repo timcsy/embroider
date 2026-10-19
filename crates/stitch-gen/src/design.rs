@@ -181,7 +181,27 @@ pub fn build_plan_with_blends(
     hoop: &Hoop,
     s: &Settings,
 ) -> PreviewResult {
-    let pairs: Vec<(&ColoredShape, Option<&BlendPair>)> = shapes
+    build_plan_styled(
+        shapes,
+        blends,
+        &vec![s.shape_aware; shapes.len()],
+        reference_height,
+        hoop,
+        s,
+    )
+}
+
+/// 同 `build_plan_with_blends`，但每個形狀各自決定要不要「依形狀選繡法」（`smart[i]`）。
+/// 文字與圖片放在同一個設計時，文字照原本的填充，圖片依形狀選針法。
+pub fn build_plan_styled(
+    shapes: &[ColoredShape],
+    blends: &[Option<BlendPair>],
+    smart: &[bool],
+    reference_height: f64,
+    hoop: &Hoop,
+    s: &Settings,
+) -> PreviewResult {
+    let pairs: Vec<(&ColoredShape, Option<&BlendPair>, bool)> = shapes
         .iter()
         .zip(
             blends
@@ -189,7 +209,14 @@ pub fn build_plan_with_blends(
                 .map(Option::as_ref)
                 .chain(std::iter::repeat(None)),
         )
-        .filter(|(c, _)| !c.polygon.is_empty())
+        .zip(
+            smart
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(s.shape_aware)),
+        )
+        .map(|((c, b), m)| (c, b, m))
+        .filter(|(c, _, _)| !c.polygon.is_empty())
         .collect();
     if pairs.is_empty() || reference_height <= 0.0 {
         return PreviewResult::blocked(UserMessage::new(
@@ -198,6 +225,7 @@ pub fn build_plan_with_blends(
             Some("請先輸入文字或選一張圖。"),
         ));
     }
+    let smart_of: Vec<bool> = pairs.iter().map(|p| p.2).collect();
     let owned: Vec<ColoredShape> = pairs.iter().map(|p| p.0.clone()).collect();
     let blend_of: Vec<Option<BlendPair>> = pairs.iter().map(|p| p.1.cloned()).collect();
     let mut adjustments = Vec::new();
@@ -207,7 +235,7 @@ pub fn build_plan_with_blends(
     // 也不該因為縮小後線更細就擋下來。
     let min_params = MinSizeParams {
         min_text_height: s.min_text_height,
-        min_stroke_width: if s.shape_aware {
+        min_stroke_width: if smart_of.iter().all(|&m| m) {
             0.0
         } else {
             s.min_stroke_width
@@ -238,7 +266,14 @@ pub fn build_plan_with_blends(
             FitResult::Fits => break,
             FitResult::Scaled(k) => {
                 if required.is_none() {
-                    let r = shrink_limit(&unit, desired, reference_height, &min_params);
+                    // 沒有任何最小尺寸限制時，縮多小都行（也避免 shrink_limit 一路往下找不到底）
+                    let r = if min_params.min_text_height <= 0.0
+                        && min_params.min_stroke_width <= 0.0
+                    {
+                        0.0
+                    } else {
+                        shrink_limit(&unit, desired, reference_height, &min_params)
+                    };
                     required = Some(r);
                     // 有了下限，重新判斷這次縮小是否仍然可以接受
                     if let FitResult::Blocked(m) = fit_polygon(&candidate, hoop, r / scale) {
@@ -274,22 +309,18 @@ pub fn build_plan_with_blends(
     // 填充先繡、細線與輪廓（平針、緞面）最後繡：線壓在最上面，邊緣才清楚（Brother US8473090B2「銳利的部分最後繡」）
     let mut blocks = Vec::new();
     let mut line_blocks = Vec::new();
-    for (shape, blend) in owned.iter().zip(&blend_of) {
+    for ((shape, blend), &smart) in owned.iter().zip(&blend_of).zip(&smart_of) {
         let scaled = shape.polygon.scale(final_scale);
         // 先把每一塊相連的形狀各自繡成一組針跡，再依位置排順序（減少跳針）
         let mut items: Vec<(Polygon, RunSets)> = Vec::new();
         let mut line_items: Vec<(Polygon, RunSets)> = Vec::new();
-        let bases = if s.shape_aware {
+        let bases = if smart {
             scaled.shapes()
         } else {
             vec![scaled.clone()]
         };
         for base in bases {
-            let stroke = if s.shape_aware {
-                plan_stroke(&base)
-            } else {
-                None
-            };
+            let stroke = if smart { plan_stroke(&base) } else { None };
             if let Some((kind, lines)) = stroke {
                 let mut runs: Vec<Run> = Vec::new();
                 for line in &lines {
@@ -306,13 +337,9 @@ pub fn build_plan_with_blends(
             let expanded = base.offset(s.pull_comp.max(0.0));
             for part in expanded.shapes() {
                 // 依形狀選角度：碎片最少的；一樣時偏好順著長邊
-                let axis = if s.shape_aware {
-                    principal_angle(&part)
-                } else {
-                    None
-                };
-                let round = s.shape_aware && axis.is_none();
-                let angle = if s.shape_aware {
+                let axis = if smart { principal_angle(&part) } else { None };
+                let round = smart && axis.is_none();
+                let angle = if smart {
                     let prefer = axis.unwrap_or(s.fill_angle);
                     best_fill_angle(&part, s.row_spacing, prefer)
                 } else {
@@ -331,10 +358,10 @@ pub fn build_plan_with_blends(
                 };
                 let mut runs: Vec<Run> = underlay(&part, angle);
                 // 圓潤、沒有明顯長邊的形狀（沒有主軸）：輪廓填充，針跡順著邊緣；已含最外圈，不必再走邊
-                if s.shape_aware && s.contour_fill && part_blend.is_none() && round {
+                if smart && s.contour_fill && part_blend.is_none() && round {
                     runs.extend(contour_fill(&part, &fp));
                 } else {
-                    let curved = s.shape_aware && part_blend.is_none();
+                    let curved = smart && part_blend.is_none();
                     let flowed = (curved && s.flow_fill)
                         .then(|| flow_fill(&part, &fp))
                         .flatten()

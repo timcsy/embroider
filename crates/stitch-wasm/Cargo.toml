@@ -11,6 +11,7 @@ stitch-geom.workspace = true
 stitch-gen.workspace = true
 stitch-text.workspace = true
 stitch-image.workspace = true
+stitch-compose.workspace = true
 wasm-bindgen.workspace = true
 serde-wasm-bindgen.workspace = true
 serde.workspace = true

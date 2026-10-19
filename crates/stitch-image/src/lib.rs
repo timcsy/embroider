@@ -7,4 +7,4 @@ pub mod saliency;
 pub mod smooth;
 pub mod trace;
 
-pub use pipeline::{build_image_preview, ImageRequest};
+pub use pipeline::{build_image_preview, image_shapes, ImageRequest, ImageShapes};

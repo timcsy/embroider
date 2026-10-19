@@ -65,6 +65,20 @@ pub fn build_image_preview(request: JsValue, rgba: &[u8]) -> Result<JsValue, JsE
     out(&api::build_image_preview(&req))
 }
 
+/// 多物件設計。圖片像素以 `Uint8Array` 的陣列傳入（RGBA），物件用 `image` 欄位指定第幾張。
+#[wasm_bindgen(js_name = buildCompositePreview)]
+pub fn build_composite_preview(
+    request: JsValue,
+    images: js_sys::Array,
+) -> Result<JsValue, JsError> {
+    let req: api::CompositeRequest = input(request)?;
+    let pixels: Vec<Vec<u8>> = images
+        .iter()
+        .map(|v| js_sys::Uint8Array::new(&v).to_vec())
+        .collect();
+    FONTS.with(|f| out(&api::build_composite_preview(&f.borrow(), &req, &pixels)))
+}
+
 #[wasm_bindgen(js_name = suggestColorCount)]
 pub fn suggest_color_count(rgba: &[u8], width: usize, height: usize) -> usize {
     api::suggest_color_count(rgba, width, height)

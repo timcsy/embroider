@@ -82,6 +82,22 @@ impl Polygon {
         }
     }
 
+    /// 繞原點旋轉（度，y 軸向下，正值為順時針）。
+    pub fn rotate(&self, deg: f64) -> Polygon {
+        let (sin, cos) = deg.to_radians().sin_cos();
+        Polygon {
+            rings: self
+                .rings
+                .iter()
+                .map(|r| {
+                    r.iter()
+                        .map(|p| [p[0] * cos - p[1] * sin, p[0] * sin + p[1] * cos])
+                        .collect()
+                })
+                .collect(),
+        }
+    }
+
     pub fn scale(&self, s: f64) -> Polygon {
         Polygon {
             rings: self

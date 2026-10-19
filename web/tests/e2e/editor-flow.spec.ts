@@ -1042,3 +1042,61 @@ test.describe('第一次使用的提示', () => {
     expect((await page.getByTestId('tip-dismiss').boundingBox())!.height).toBeGreaterThanOrEqual(44)
   })
 })
+
+// ── 警告不會讓畫布的版面跳動 ──
+test('出現「放不進框」的警告時，固定在上面的畫布高度與位置都不變', async ({ page }) => {
+  await open(page)
+  const t = await addText(page)
+  await t.fill('王')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const card = page.locator('.canvas-card')
+  const before = (await card.boundingBox())!
+  const stage0 = (await page.getByTestId('stage').boundingBox())!
+
+  // 把字放大到放不進框，警告出現
+  await page.getByRole('radio', { name: /小框/ }).click()
+  await t.fill('王小明的刺繡作品展覽很長的一段文字'.repeat(4))
+  await expect(page.getByRole('alert')).toContainText('放不進', { timeout: 30_000 })
+  await expect(page.getByTestId('canvas-warning')).toBeVisible()
+
+  const after = (await card.boundingBox())!
+  const stage1 = (await page.getByTestId('stage').boundingBox())!
+  // 換了框，畫布大小可以不同；但是警告本身不能讓卡片多出一截（高度只跟畫布一起變）
+  expect(Math.abs(after.height - stage1.height - (before.height - stage0.height))).toBeLessThan(2)
+
+  // 警告的詳細說明在工具區，不在固定的畫布卡片裡
+  await expect(page.locator('.canvas-card [role=alert]')).toHaveCount(0)
+  await expect(page.locator('.panel-col [role=alert]')).toHaveCount(1)
+})
+
+test('警告出現又消失，畫布卡片的高度完全一樣', async ({ page }) => {
+  await open(page)
+  const t = await addText(page)
+  await t.fill('王小明')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('radio', { name: /小框/ }).click()
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const card = page.locator('.canvas-card')
+  const h0 = (await card.boundingBox())!.height
+  await t.fill('王小明的刺繡作品展覽很長的一段文字'.repeat(4))
+  await expect(page.getByRole('alert')).toContainText('放不進', { timeout: 30_000 })
+  const h1 = (await card.boundingBox())!.height
+  await t.fill('王小明')
+  await expect(page.getByRole('alert')).toHaveCount(0, { timeout: 30_000 })
+  const h2 = (await card.boundingBox())!.height
+  expect(Math.abs(h1 - h0)).toBeLessThan(2)
+  expect(Math.abs(h2 - h0)).toBeLessThan(2)
+})
+
+test('「已經接著上次做到的地方」不會把固定的畫布撐高', async ({ page }) => {
+  await open(page)
+  await shape(page, 'star')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const h0 = (await page.locator('.canvas-card').boundingBox())!.height
+  await page.waitForTimeout(1500)
+  await page.reload()
+  await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const h1 = (await page.locator('.canvas-card').boundingBox())!.height
+  expect(Math.abs(h1 - h0)).toBeLessThan(2)
+})

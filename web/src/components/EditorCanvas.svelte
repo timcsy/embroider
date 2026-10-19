@@ -45,6 +45,7 @@
     layers = [],
     computed = {},
     stale = false,
+    warning = '',
     fill = false,
     drawing = false,
     brush = { css: '#b3282d', units: 25 },
@@ -85,6 +86,8 @@
     computed?: Record<string, Placement>
     /** 正在重新計算 */
     stale?: boolean
+    /** 畫布角落的一行短提醒（詳細說明在工具區），不佔版面 */
+    warning?: string
     /** 寬螢幕（畫布在左、工具在右）：畫布盡量放大；窄螢幕要留位置給下面的工具 */
     fill?: boolean
     drawing?: boolean
@@ -522,6 +525,7 @@
 
 <div class="area" bind:clientWidth={avail} bind:this={area}>
   <div class="stage" style="width:{width}px;height:{height}px" role="img" aria-label={label}>
+    {#if warning}<div class="warn" aria-hidden="true" data-testid="canvas-warning">⚠ {warning}</div>{/if}
     {#if stale}<div class="busy" aria-hidden="true" data-testid="busy"></div>{/if}
     <canvas bind:this={canvas} style="width:{width}px;height:{height}px" data-testid="preview"></canvas>
     {#if mini && selected}
@@ -623,6 +627,7 @@
   .stage { position: relative; touch-action: none; }
   canvas { display: block; border-radius: 12px; }
   /* 計算超過一下子才出現的細細進度條，放在畫布上緣，不會讓版面跳動 */
+  .warn { position: absolute; left: 8px; bottom: 8px; z-index: 3; max-width: calc(100% - 16px); padding: 4px 10px; border-radius: 999px; background: rgba(232, 162, 90, 0.95); color: #3a2200; font-size: 0.8em; font-weight: 700; pointer-events: none; }
   .busy { position: absolute; left: 12px; right: 12px; top: 0; height: 3px; z-index: 3; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: slide 0.9s linear infinite; animation-delay: 0.25s; opacity: 0; animation-fill-mode: backwards; }
   @keyframes slide { 0% { background-position: -40% 0; opacity: 1 } 100% { background-position: 140% 0; opacity: 1 } }
   .overlay { position: absolute; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; outline-offset: -3px; }

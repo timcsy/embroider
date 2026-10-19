@@ -762,6 +762,7 @@
           layers={result?.layers ?? []}
           computed={computedAt}
           stale={computing}
+          warning={preview?.blocked && !isEmptyHint ? strings.editor.cannotSave : ''}
           selectedId={doc.selectedId}
           selectedIds={pickedIds}
           multi={multiMode}
@@ -790,16 +791,16 @@
             <p class="muted">{strings.text.empty}</p>
           {/if}
         </div>
-        {#if resumed && doc.items.length > 0}
-          <p class="muted" role="status" data-testid="resumed-note">{strings.editor.resumed}</p>
-        {/if}
-        {#if preview?.blocked && !isEmptyHint}
-          <Notice message={preview.blocked} tone="warn" />
-        {/if}
       </div>
     </section>
 
     <section class="panel-col">
+      {#if preview?.blocked && !isEmptyHint}
+        <Notice message={preview.blocked} tone="warn" />
+      {/if}
+      {#if resumed && doc.items.length > 0}
+        <p class="muted" role="status" data-testid="resumed-note">{strings.editor.resumed}</p>
+      {/if}
       {#if tipNow}
         <div class="tip" role="status" data-testid="tip" data-tip={tipNow}>
           <span>{strings.editor.tip[tipNow]}</span>
@@ -1290,7 +1291,7 @@
   .tip { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 8px 12px; background: #eef5ff; border: 2px solid #9db8e8; border-radius: 12px; }
   .tip span { flex: 1; }
   .tip button { min-height: 44px; padding: 0 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 0.85em; white-space: nowrap; }
-  .status { min-height: 1.5em; }
+  .status { display: flow-root; min-height: 44px; }
   .hint { text-align: center; }
   .pick { display: flex; gap: 10px; margin-top: 8px; }
   .pick .secondary { flex: 1; }

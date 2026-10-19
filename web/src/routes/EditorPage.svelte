@@ -8,7 +8,16 @@
   import Notice from '../components/Notice.svelte'
   import { cropRgba, type CropRect } from '../lib/crop'
   import type { CoreClient } from '../lib/coreClient'
-  import { listRecent, removeRecent, saveRecent, type SavedDesign } from '../lib/designs'
+  import {
+    clearCurrent,
+    listRecent,
+    loadCurrent,
+    removeRecent,
+    saveCurrent,
+    saveRecent,
+    type SavedDesign,
+    type SavedImageWithId,
+  } from '../lib/designs'
   import {
     appendStroke,
     removeLastStroke,
@@ -316,15 +325,18 @@
     if (saved) await refreshRecent()
   }
 
-  async function restore(d: SavedDesign) {
+  /** 把存下來的設計放回畫面：圖片重新解碼、物件指到新的圖片編號。成功回傳 true。 */
+  async function applySaved(
+    p: Record<string, unknown>,
+    savedImages: SavedImageWithId[],
+  ): Promise<boolean> {
     imageProblem = null
-    const p = d.params as Record<string, unknown>
     const loaded: Source[] = []
-    for (const im of d.images ?? (d.image ? [{ id: 'legacy', ...d.image }] : [])) {
+    for (const im of savedImages) {
       const r = await loadImage(fileFromBytes(im.png, im.name))
       if ('code' in r) {
         imageProblem = r
-        return
+        return false
       }
       loaded.push(toSource(r))
     }
@@ -332,16 +344,66 @@
     let items: EditorItem[] = []
     let hoopId = typeof p.hoopId === 'string' ? p.hoopId : doc.hoopId
     if (p.version === 2 && Array.isArray(p.items)) {
-      const map = new Map(loaded.map((s, i) => [(d.images ?? [])[i]?.id, s.id]))
-      items = (p.items as EditorItem[]).map((it) =>
-        it.kind === 'image' ? { ...it, imageId: map.get(it.imageId) ?? it.imageId } : it,
-      )
+      const map = new Map(loaded.map((s, i) => [savedImages[i]?.id, s.id]))
+      // 舊的存檔沒有翻轉、組、弧形這些欄位：缺的補預設值
+      const defaults: Record<string, unknown> = { flipX: false, flipY: false, groupId: null }
+      items = (p.items as EditorItem[]).map((it) => {
+        const filled = { ...defaults, ...(it.kind === 'text' ? { curve: 0 } : {}), ...it } as EditorItem
+        return filled.kind === 'image' ? { ...filled, imageId: map.get(filled.imageId) ?? filled.imageId } : filled
+      })
     } else {
       const one = fromLegacy(p, loaded[0]?.id)
       items = one ? [one] : []
     }
     if (!hoops.some((h) => h.id === hoopId)) hoopId = doc.hoopId
     commit({ items, hoopId, selectedId: items.length === 1 ? items[0].id : null })
+    return true
+  }
+
+  async function restore(d: SavedDesign) {
+    resumed = false
+    await applySaved(d.params as Record<string, unknown>, d.images ?? (d.image ? [{ id: 'legacy', ...d.image }] : []))
+  }
+
+  // ── 自動儲存：做到一半的設計，下次打開接著做 ──
+  let resumed = $state(false)
+  let autosaveReady = false
+
+  function currentDraft() {
+    const used = new Set(doc.items.flatMap((i) => (i.kind === 'image' ? [i.imageId] : [])))
+    return {
+      params: { version: 2, items: doc.items, hoopId: doc.hoopId },
+      images: sources
+        .filter((s) => used.has(s.id))
+        .map((s) => ({ id: s.id, name: s.name, width: s.width, height: s.height, png: dataUrlToBytes(s.previewUrl) })),
+    }
+  }
+
+  $effect(() => {
+    void loadCurrent().then(async (draft) => {
+      if (draft && doc.items.length === 0) {
+        const items = (draft.params as { items?: unknown[] }).items
+        if (Array.isArray(items) && items.length > 0 && (await applySaved(draft.params, draft.images))) resumed = true
+      }
+      autosaveReady = true
+    })
+  })
+
+  $effect(() => {
+    const items = doc.items
+    void doc.hoopId
+    void sources
+    if (!autosaveReady) return
+    const timer = setTimeout(() => {
+      if (items.length === 0) void clearCurrent()
+      else void saveCurrent(currentDraft())
+    }, 600)
+    return () => clearTimeout(timer)
+  })
+
+  function startOver() {
+    resumed = false
+    commit({ items: [], hoopId: doc.hoopId, selectedId: null })
   }
 
   async function forget(d: SavedDesign) {
@@ -514,6 +576,9 @@
         {/each}
         {#if failure}
           <Notice message={failure} tone="warn" />
+        {/if}
+        {#if resumed && doc.items.length > 0}
+          <p class="muted" role="status" data-testid="resumed-note">{strings.editor.resumed}</p>
         {/if}
         {#if removedNote}
           <div class="toast" role="status" data-testid="removed-note">
@@ -868,6 +933,7 @@
         <button class="secondary" onclick={() => save('all')} disabled={!canSave || saving || computing} data-testid="save-all">
           {strings.actions.saveAll}
         </button>
+        <button class="secondary" onclick={startOver} disabled={doc.items.length === 0} data-testid="start-over">{strings.editor.startOver}</button>
         <button class="secondary" onclick={onTry} data-testid="try-entry">{strings.actions.tryEntry}</button>
       </section>
     </section>

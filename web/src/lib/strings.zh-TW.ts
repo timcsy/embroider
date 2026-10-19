@@ -81,6 +81,8 @@ export const strings = {
     selectHint: '點一下畫面上的東西，就可以修改它。',
     kinds: { text: '文字', image: '圖片', shape: '圖案', draw: '手繪' },
     addDraw: '畫畫',
+    resumed: '已經接著上次做到的地方。',
+    startOver: '全部清掉，重新開始',
     drawTitle: '用手指畫',
     drawHint: '用手指（或滑鼠）在上面畫。畫好一筆就會自動接起來，可以一直畫下去。',
     drawDone: '畫好了',

@@ -76,3 +76,41 @@ describe('最近的設計', () => {
     open.mockRestore()
   })
 })
+
+import { clearCurrent, loadCurrent, saveCurrent } from '../src/lib/designs'
+
+describe('做到一半的設計（自動儲存）', () => {
+  beforeEach(async () => {
+    await clearCurrent()
+    await clearRecent()
+  })
+
+  it('存了就能讀回來，內容一樣', async () => {
+    const draft = {
+      params: { version: 2, items: [{ id: 'item-1', kind: 'text', text: '王小明' }], hoopId: 'b70-medium' },
+      images: [{ id: 'img-1', name: 'a.png', width: 2, height: 2, png: new Uint8Array([1, 2, 3]) }],
+    }
+    expect(await saveCurrent(draft)).toBe(true)
+    const back = await loadCurrent()
+    expect(back?.params).toEqual(draft.params)
+    expect(Array.from(back!.images[0].png)).toEqual([1, 2, 3])
+  })
+
+  it('再存一次是覆蓋，不是新增', async () => {
+    await saveCurrent({ params: { n: 1 }, images: [] })
+    await saveCurrent({ params: { n: 2 }, images: [] })
+    expect((await loadCurrent())?.params).toEqual({ n: 2 })
+  })
+
+  it('清掉之後讀不到；沒存過也不會出錯', async () => {
+    expect(await loadCurrent()).toBeNull()
+    await saveCurrent({ params: {}, images: [] })
+    await clearCurrent()
+    expect(await loadCurrent()).toBeNull()
+  })
+
+  it('不會跑進「最近做過的」清單', async () => {
+    await saveCurrent({ params: { a: 1 }, images: [] })
+    expect(await listRecent()).toEqual([])
+  })
+})

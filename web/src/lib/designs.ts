@@ -1,6 +1,6 @@
 // 最近的設計：存在這支手機的瀏覽器裡（IndexedDB），重開後仍在。最多十個，同一個設計只留一份。
 // 儲存空間不能用（私密瀏覽、被清掉）時，所有函式都不會丟例外：存失敗、列出為空。
-import { clear, createStore, del, entries, set } from 'idb-keyval'
+import { clear, createStore, del, entries, get, set } from 'idb-keyval'
 
 const MAX_RECENT = 10
 
@@ -67,6 +67,43 @@ export async function removeRecent(id: string): Promise<void> {
 export async function clearRecent(): Promise<void> {
   try {
     await clear(store())
+  } catch {
+    // 沒關係
+  }
+}
+
+// ── 做到一半的設計 ──
+// 手機常會把瀏覽器關掉或重新整理，做到一半的東西不能就這樣不見：每次修改後自動存一份，下次打開接著做。
+// 跟「最近做過的」分開放（那是存出檔案之後才有的），只有一份。
+
+export interface CurrentDraft {
+  params: Record<string, unknown>
+  images: SavedImageWithId[]
+}
+
+const currentStore = () => createStore('embroider-current', 'draft')
+const CURRENT_KEY = 'current'
+
+export async function saveCurrent(draft: CurrentDraft): Promise<boolean> {
+  try {
+    await set(CURRENT_KEY, draft, currentStore())
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function loadCurrent(): Promise<CurrentDraft | null> {
+  try {
+    return ((await get(CURRENT_KEY, currentStore())) as CurrentDraft | undefined) ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function clearCurrent(): Promise<void> {
+  try {
+    await del(CURRENT_KEY, currentStore())
   } catch {
     // 沒關係
   }

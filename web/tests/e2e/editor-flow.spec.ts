@@ -419,7 +419,7 @@ test('兩根手指同時縮放與旋轉（真的觸控事件）', async ({ page 
   const cx = r0.x + r0.width / 2
   const cy = r0.y + r0.height / 2
   const cdp = await page.context().newCDPSession(page)
-  const touch = (type: string, pts: { x: number; y: number }[]) =>
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', pts: { x: number; y: number }[]) =>
     cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i + 1 })) })
   // 兩指從左右各 30 像素，拉開到各 60 像素，並順時針轉 45 度
   await touch('touchStart', [{ x: cx - 30, y: cy }, { x: cx + 30, y: cy }])
@@ -440,4 +440,47 @@ test('兩根手指同時縮放與旋轉（真的觸控事件）', async ({ page 
   const deg = Number(/rotate\(([-\d.]+)\)/.exec(transform)?.[1])
   expect(deg).toBeGreaterThan(30)
   expect(deg).toBeLessThan(60)
+})
+
+// ── 自動儲存 ──
+test('做到一半關掉再打開：接著上次的設計；「全部清掉」之後不會再回來', async ({ page }) => {
+  await open(page)
+  const t = await addText(page)
+  await t.fill('王小明')
+  await shape(page, 'heart')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  // 等自動儲存（約 0.6 秒）
+  await page.waitForTimeout(1500)
+
+  await page.reload()
+  await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
+  await expect(itemCount(page)).toHaveCount(2)
+  await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
+
+  await page.getByTestId('start-over').click()
+  await expect(itemCount(page)).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  await page.reload()
+  await expect(page.getByTestId('add-text')).toBeVisible({ timeout: 30_000 })
+  await expect(itemCount(page)).toHaveCount(0)
+  await expect(page.getByTestId('resumed-note')).toHaveCount(0)
+})
+
+test('重新開始可以用「上一步」拿回來', async ({ page }) => {
+  await open(page)
+  await shape(page, 'star')
+  await page.getByTestId('start-over').click()
+  await expect(itemCount(page)).toHaveCount(0)
+  await page.getByRole('button', { name: '上一步' }).click()
+  await expect(itemCount(page)).toHaveCount(1)
+})
+
+test('圖片設計也能接著做', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+  await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
+  await page.waitForTimeout(1500)
+  await page.reload()
+  await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 })

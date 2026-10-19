@@ -7,7 +7,8 @@ use crate::fit::{fit_polygon, FitResult};
 use crate::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use crate::outline::outline;
 use crate::stroke::{
-    mean_width, plan_stroke, principal_angle, run_stitch, satin, satin_underlay, StrokeKind,
+    flow_fill, mean_width, plan_stroke, principal_angle, run_stitch, satin, satin_underlay,
+    StrokeKind,
 };
 use crate::travel::{assemble, group_by_color, ColorBlock, TravelParams};
 use crate::underlay::underlay;
@@ -44,6 +45,8 @@ pub struct Settings {
     pub shape_aware: bool,
     /// 圓潤、沒有明顯長邊的填充區域改用輪廓填充（一圈一圈順著邊緣）。需要 `shape_aware`。
     pub contour_fill: bool,
+    /// 彎曲的寬帶狀區域，針跡順著彎度走（需 `shape_aware`）
+    pub flow_fill: bool,
 }
 
 impl Default for Settings {
@@ -60,6 +63,7 @@ impl Default for Settings {
             edge_outline: true,
             shape_aware: false,
             contour_fill: false,
+            flow_fill: false,
         }
     }
 }
@@ -326,7 +330,10 @@ pub fn build_plan_with_blends(
                 if s.shape_aware && s.contour_fill && part_blend.is_none() && round {
                     runs.extend(contour_fill(&part, &fp));
                 } else {
-                    runs.extend(fill(&part, &fp));
+                    let flowed = (s.shape_aware && s.flow_fill && part_blend.is_none())
+                        .then(|| flow_fill(&part, &fp))
+                        .flatten();
+                    runs.extend(flowed.unwrap_or_else(|| fill(&part, &fp)));
                     if s.edge_outline {
                         runs.extend(outline(&part, 25.0));
                     }

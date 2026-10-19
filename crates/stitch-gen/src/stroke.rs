@@ -4,6 +4,7 @@
 //! 每個點記下該處的半寬（由距離變換得到），緞面靠它決定左右針點的位置。
 //! 全部是純函式。單位 0.1mm。
 
+use crate::fill::FillParams;
 use crate::Run;
 use stitch_geom::{spans_at, Polygon};
 
@@ -720,4 +721,223 @@ pub fn satin(line: &[[f64; 3]], comp: f64) -> Vec<Run> {
 
 fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
     ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt()
+}
+
+/// 順著彎曲方向的填充只在轉彎總量至少這麼多（度）時才有意義；更直的用一般填充。
+const FLOW_MIN_TURN_DEG: f64 = 25.0;
+/// 中線取樣間距（0.1mm）
+const FLOW_STEP: f64 = 10.0;
+/// 中線上寬度低於中位數這個比例的兩端尾巴不要（它們彎向角落）。
+/// 比這更短的區段（0.1mm）不繡：多是貼著邊界的碎屑。
+const FLOW_MIN_SPAN: f64 = 20.0;
+/// 量曲率的視窗（取樣點數）
+const FLOW_CURVE_WINDOW: usize = 8;
+/// 中線長度至少要有估計值的這個比例
+const FLOW_MIN_COVER: f64 = 0.7;
+const FLOW_TRIM: usize = 3;
+const FLOW_TAIL_WIDTH: f64 = 0.8;
+/// 半寬 × 最大曲率超過這個值，內側的偏移線就會折疊或擠在一起。
+const FLOW_MAX_FOLD: f64 = 0.6;
+/// 超過這個比例的列被切成多段，表示形狀不是單純的彎帶。
+const FLOW_MAX_SPLIT_ROWS: f64 = 0.2;
+
+/// 順著中線彎曲方向的填充：每一列是中線往兩側平移出的曲線，切掉區域外的部分。
+/// 只適用單一、有明顯彎度、且彎度不至於讓內側折疊的帶狀形狀；不適用回傳 `None`。
+pub fn flow_fill(poly: &Polygon, p: &FillParams) -> Option<Vec<Run>> {
+    let lines = centerlines(poly);
+    if lines.len() != 1 || lines[0].len() < 2 {
+        return None;
+    }
+    let mut line = resample(&lines[0], FLOW_STEP);
+    // 兩端的中線會彎向角落、寬度變小：只留寬度夠的部分，之後再沿切線直直延伸
+    let mut widths: Vec<f64> = line.iter().map(|q| q[2]).collect();
+    widths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let keep = widths[widths.len() / 2] * FLOW_TAIL_WIDTH;
+    let first = line.iter().position(|q| q[2] >= keep)?;
+    let last = line.iter().rposition(|q| q[2] >= keep)?;
+    if last < first {
+        return None;
+    }
+    // 最末幾點因格點誤差常有小折角，也不要
+    let (first, last) = (first + FLOW_TRIM, last.saturating_sub(FLOW_TRIM));
+    if last <= first {
+        return None;
+    }
+    line = line[first..=last].to_vec();
+    const K: usize = 2;
+    if line.len() < 2 * K + 3 {
+        return None;
+    }
+    // 中線該有多長，由面積和寬度估計；差太多代表中線沒抓準（彎得太急、形狀太胖）
+    let median = widths[widths.len() / 2];
+    let expected = poly.area().abs() / (2.0 * median);
+    if (line.len() as f64 - 1.0) * FLOW_STEP < expected * FLOW_MIN_COVER {
+        return None;
+    }
+    let half = line.iter().map(|q| q[2]).fold(0.0, f64::max) + 10.0;
+    // 切線（取前後幾點的弦，抹掉格點雜訊）
+    let tangents = |line: &[[f64; 3]]| -> Vec<[f64; 2]> {
+        let n = line.len();
+        (0..n)
+            .map(|i| {
+                let (a, b) = (line[i.saturating_sub(K)], line[(i + K).min(n - 1)]);
+                let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                let l = (dx * dx + dy * dy).sqrt().max(1e-9);
+                [dx / l, dy / l]
+            })
+            .collect()
+    };
+    let turn =
+        |a: [f64; 2], b: [f64; 2]| (a[0] * b[1] - a[1] * b[0]).atan2(a[0] * b[0] + a[1] * b[1]);
+    let dirs = tangents(&line);
+    let total: f64 = dirs.windows(2).map(|w| turn(w[0], w[1])).sum::<f64>().abs();
+    if total.to_degrees() < FLOW_MIN_TURN_DEG {
+        return None;
+    }
+    // 曲率用較寬的視窗量：格點誤差造成的小抖動不會被誤當成急彎
+    let kappa = dirs
+        .windows(FLOW_CURVE_WINDOW + 1)
+        .map(|w| turn(w[0], w[FLOW_CURVE_WINDOW]).abs() / (FLOW_CURVE_WINDOW as f64 * FLOW_STEP))
+        .fold(0.0, f64::max);
+    if half * kappa > FLOW_MAX_FOLD {
+        return None;
+    }
+    // 兩端沿切線延伸，蓋到角落
+    let reach = (half / FLOW_STEP).ceil() as usize;
+    let (d0, d1) = (dirs[0], dirs[dirs.len() - 1]);
+    let (p0, p1) = (line[0], line[line.len() - 1]);
+    let mut ext: Vec<[f64; 3]> = (1..=reach)
+        .rev()
+        .map(|i| {
+            [
+                p0[0] - d0[0] * FLOW_STEP * i as f64,
+                p0[1] - d0[1] * FLOW_STEP * i as f64,
+                p0[2],
+            ]
+        })
+        .collect();
+    ext.extend(line.iter().copied());
+    ext.extend((1..=reach).map(|i| {
+        [
+            p1[0] + d1[0] * FLOW_STEP * i as f64,
+            p1[1] + d1[1] * FLOW_STEP * i as f64,
+            p1[2],
+        ]
+    }));
+    let line = ext;
+    let dirs = tangents(&line);
+
+    let loose = poly.normalized();
+    let inside = |q: [f64; 2]| loose.contains(q);
+    let mut rows: Vec<Vec<Vec<[f64; 2]>>> = Vec::new();
+    let mut k = 0usize;
+    loop {
+        let t = -half + p.row_spacing * (k as f64 + 0.5);
+        if t > half {
+            break;
+        }
+        let pts: Vec<[f64; 2]> = line
+            .iter()
+            .zip(&dirs)
+            .map(|(c, d)| [c[0] - d[1] * t, c[1] + d[0] * t])
+            .collect();
+        let spans = inside_spans(&pts, &inside);
+        if !spans.is_empty() {
+            rows.push(spans);
+        }
+        k += 1;
+    }
+    let split = rows.iter().filter(|r| r.len() > 1).count() as f64;
+    if rows.is_empty() || split > rows.len() as f64 * FLOW_MAX_SPLIT_ROWS {
+        return None;
+    }
+
+    let mut runs = Vec::new();
+    for (j, spans) in rows.iter().enumerate() {
+        let mut spans: Vec<Vec<[f64; 2]>> = spans.clone();
+        if j % 2 == 1 {
+            spans.reverse();
+            spans.iter_mut().for_each(|s| s.reverse());
+        }
+        for s in spans {
+            let phase = (j % 3) as f64 / 3.0;
+            let stitched = walk(&s, p.max_stitch, phase);
+            if stitched.len() >= 2 {
+                runs.push(stitched);
+            }
+        }
+    }
+    Some(runs)
+}
+
+/// 取出曲線在區域內的各段；進出邊界的地方用二分法找準。
+fn inside_spans(pts: &[[f64; 2]], inside: &impl Fn([f64; 2]) -> bool) -> Vec<Vec<[f64; 2]>> {
+    let edge = |a: [f64; 2], b: [f64; 2]| {
+        // a 與 b 一個在內一個在外：回傳靠內側的邊界點
+        let (mut i, mut o) = if inside(a) { (a, b) } else { (b, a) };
+        for _ in 0..8 {
+            let m = [(i[0] + o[0]) / 2.0, (i[1] + o[1]) / 2.0];
+            if inside(m) {
+                i = m;
+            } else {
+                o = m;
+            }
+        }
+        i
+    };
+    let mut spans: Vec<Vec<[f64; 2]>> = Vec::new();
+    let mut cur: Vec<[f64; 2]> = Vec::new();
+    let mut prev: Option<([f64; 2], bool)> = None;
+    for &q in pts {
+        let now = inside(q);
+        match (prev, now) {
+            (Some((a, false)), true) => {
+                cur.push(edge(a, q));
+                cur.push(q);
+            }
+            (Some((a, true)), false) => {
+                cur.push(edge(a, q));
+                spans.push(std::mem::take(&mut cur));
+            }
+            (_, true) => cur.push(q),
+            _ => {}
+        }
+        prev = Some((q, now));
+    }
+    if !cur.is_empty() {
+        spans.push(cur);
+    }
+    spans.retain(|s| s.len() >= 2 && path_len(s) >= FLOW_MIN_SPAN);
+    spans
+}
+
+fn path_len(s: &[[f64; 2]]) -> f64 {
+    s.windows(2)
+        .map(|w| ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt())
+        .sum()
+}
+
+/// 沿折線每隔 `step` 下一針，第一針在 `phase × step` 處（各列錯開，避免針孔排成直線）；頭尾一定下針。
+fn walk(s: &[[f64; 2]], step: f64, phase: f64) -> Vec<[f64; 2]> {
+    let mut out = vec![s[0]];
+    let mut next = step * (phase + 0.5).min(1.0);
+    let mut done = 0.0;
+    for w in s.windows(2) {
+        let seg = ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt();
+        while next <= done + seg {
+            let t = (next - done) / seg;
+            out.push([
+                w[0][0] + (w[1][0] - w[0][0]) * t,
+                w[0][1] + (w[1][1] - w[0][1]) * t,
+            ]);
+            next += step;
+        }
+        done += seg;
+    }
+    let last = *s.last().unwrap();
+    let tail = *out.last().unwrap();
+    if (tail[0] - last[0]).abs() > 1e-9 || (tail[1] - last[1]).abs() > 1e-9 {
+        out.push(last);
+    }
+    out
 }

@@ -374,3 +374,31 @@ fn 細線與輪廓排在填充之後繡_壓在最上面() {
     let names: Vec<&str> = r.plan.colors.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["紅", "黑"], "線要排在填充之後：{names:?}");
 }
+
+#[test]
+fn 彎帶開啟順彎填充後針跡不同且仍合法() {
+    let n = 48;
+    let at = |r: f64, i: usize| {
+        let a = (100.0 * i as f64 / n as f64).to_radians();
+        [r * a.cos(), r * a.sin()]
+    };
+    let mut ring: Vec<[f64; 2]> = (0..=n).map(|i| at(400.0, i)).collect();
+    ring.extend((0..=n).rev().map(|i| at(300.0, i)));
+    let shapes = one(Polygon::new(vec![ring]));
+    let run = |flow: bool| {
+        build_plan(
+            &shapes,
+            400.0,
+            &hoop("b70-large"),
+            &Settings {
+                shape_aware: true,
+                flow_fill: flow,
+                ..Settings::default()
+            },
+        )
+    };
+    let (off, on) = (run(false), run(true));
+    assert!(on.blocked.is_none(), "{:?}", on.blocked);
+    assert_ne!(off.plan.stitches, on.plan.stitches);
+    assert!(validate_plan(&on.plan, &hoop("b70-large")).is_ok());
+}

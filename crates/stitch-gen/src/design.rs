@@ -50,6 +50,8 @@ pub struct Settings {
     pub flow_fill: bool,
     /// 其他不規則形狀，針跡順著輪廓流動（方向場；需 `shape_aware`）
     pub field_fill: bool,
+    /// 另外回傳每個形狀各自的針跡（`PreviewResult::layers`），編輯畫面在拖動時用來即時變形
+    pub collect_layers: bool,
 }
 
 impl Default for Settings {
@@ -68,6 +70,7 @@ impl Default for Settings {
             contour_fill: false,
             flow_fill: false,
             field_fill: false,
+            collect_layers: false,
         }
     }
 }
@@ -88,6 +91,15 @@ pub struct ColoredShape {
     pub color: ThreadColor,
 }
 
+/// 某個形狀的一組針跡（已經是最後的位置與大小，單位 0.1mm），給畫面在計算中途即時變形用。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    /// 對應傳進來的第幾個形狀
+    pub shape: usize,
+    pub color: ThreadColor,
+    pub runs: Vec<Run>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreviewResult {
     pub plan: StitchPlan,
@@ -99,6 +111,9 @@ pub struct PreviewResult {
     pub adjustments: Vec<UserMessage>,
     /// 非空代表不可輸出
     pub blocked: Option<UserMessage>,
+    /// 每個形狀各自的針跡（只有 `Settings::collect_layers` 開著才有）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<Layer>,
 }
 
 impl PreviewResult {
@@ -109,6 +124,7 @@ impl PreviewResult {
             enlarge_scale: 1.0,
             adjustments: Vec::new(),
             blocked: Some(m),
+            layers: Vec::new(),
         }
     }
 }
@@ -201,8 +217,9 @@ pub fn build_plan_styled(
     hoop: &Hoop,
     s: &Settings,
 ) -> PreviewResult {
-    let pairs: Vec<(&ColoredShape, Option<&BlendPair>, bool)> = shapes
+    let pairs: Vec<(usize, &ColoredShape, Option<&BlendPair>, bool)> = shapes
         .iter()
+        .enumerate()
         .zip(
             blends
                 .iter()
@@ -215,8 +232,8 @@ pub fn build_plan_styled(
                 .copied()
                 .chain(std::iter::repeat(s.shape_aware)),
         )
-        .map(|((c, b), m)| (c, b, m))
-        .filter(|(c, _, _)| !c.polygon.is_empty())
+        .map(|(((i, c), b), m)| (i, c, b, m))
+        .filter(|(_, c, _, _)| !c.polygon.is_empty())
         .collect();
     if pairs.is_empty() || reference_height <= 0.0 {
         return PreviewResult::blocked(UserMessage::new(
@@ -225,9 +242,10 @@ pub fn build_plan_styled(
             Some("請先輸入文字或選一張圖。"),
         ));
     }
-    let smart_of: Vec<bool> = pairs.iter().map(|p| p.2).collect();
-    let owned: Vec<ColoredShape> = pairs.iter().map(|p| p.0.clone()).collect();
-    let blend_of: Vec<Option<BlendPair>> = pairs.iter().map(|p| p.1.cloned()).collect();
+    let smart_of: Vec<bool> = pairs.iter().map(|p| p.3).collect();
+    let origin: Vec<usize> = pairs.iter().map(|p| p.0).collect();
+    let owned: Vec<ColoredShape> = pairs.iter().map(|p| p.1.clone()).collect();
+    let blend_of: Vec<Option<BlendPair>> = pairs.iter().map(|p| p.2.cloned()).collect();
     let mut adjustments = Vec::new();
 
     // 1. 太小就放大（多數情況只檢查一次）
@@ -309,7 +327,9 @@ pub fn build_plan_styled(
     // 填充先繡、細線與輪廓（平針、緞面）最後繡：線壓在最上面，邊緣才清楚（Brother US8473090B2「銳利的部分最後繡」）
     let mut blocks = Vec::new();
     let mut line_blocks = Vec::new();
-    for ((shape, blend), &smart) in owned.iter().zip(&blend_of).zip(&smart_of) {
+    let mut layers: Vec<Layer> = Vec::new();
+    for (index, ((shape, blend), &smart)) in owned.iter().zip(&blend_of).zip(&smart_of).enumerate()
+    {
         let scaled = shape.polygon.scale(final_scale);
         // 先把每一塊相連的形狀各自繡成一組針跡，再依位置排順序（減少跳針）
         let mut items: Vec<(Polygon, RunSets)> = Vec::new();
@@ -402,6 +422,21 @@ pub fn build_plan_styled(
             .into_iter()
             .flat_map(|(p, _, _)| p)
             .collect();
+        let mut layer = |color: &ThreadColor, runs: &[Run]| {
+            if s.collect_layers && !runs.is_empty() {
+                layers.push(Layer {
+                    shape: origin[index],
+                    color: color.clone(),
+                    runs: runs.to_vec(),
+                });
+            }
+        };
+        layer(&shape.color, &plain);
+        if let Some([a, b]) = blend {
+            layer(a, &first);
+            layer(b, &second);
+        }
+        layer(&shape.color, &line_runs);
         if !line_runs.is_empty() {
             line_blocks.push(ColorBlock {
                 color: shape.color.clone(),
@@ -442,5 +477,6 @@ pub fn build_plan_styled(
         enlarge_scale: desired,
         adjustments,
         blocked: None,
+        layers,
     }
 }

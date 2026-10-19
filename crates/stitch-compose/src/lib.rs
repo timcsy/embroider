@@ -149,10 +149,27 @@ pub struct ItemInfo {
     pub problem: Option<UserMessage>,
 }
 
+/// 一個物件的一種線色的針跡（最後的位置與大小）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayerPart {
+    pub color: ThreadColor,
+    pub runs: Vec<Vec<[f64; 2]>>,
+}
+
+/// 每個物件各自的針跡，依物件的上下層順序。畫面在拖動、縮放、旋轉的計算中途，
+/// 拿它直接把舊的針跡變形，不必等新的結果。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ItemLayer {
+    pub id: String,
+    pub parts: Vec<LayerPart>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompositeResult {
     pub preview: PreviewResult,
     pub items: Vec<ItemInfo>,
+    #[serde(default)]
+    pub layers: Vec<ItemLayer>,
 }
 
 struct Built {
@@ -638,6 +655,29 @@ struct TextSpec<'a> {
     style: TextStyle,
 }
 
+/// 把各形狀的針跡依物件整理起來（順序照物件的上下層），並從預覽結果裡拿掉，免得重複傳。
+fn item_layers(preview: &mut PreviewResult, owner: &[String], items: &[Item]) -> Vec<ItemLayer> {
+    let raw = std::mem::take(&mut preview.layers);
+    let mut out: Vec<ItemLayer> = Vec::new();
+    for it in items {
+        let parts: Vec<LayerPart> = raw
+            .iter()
+            .filter(|l| owner.get(l.shape) == Some(&it.id))
+            .map(|l| LayerPart {
+                color: l.color.clone(),
+                runs: l.runs.clone(),
+            })
+            .collect();
+        if !parts.is_empty() {
+            out.push(ItemLayer {
+                id: it.id.clone(),
+                parts,
+            });
+        }
+    }
+    out
+}
+
 /// 單行得縮到比這個倍率還小，就考慮改成分行。
 const WRAP_IF_BELOW: f64 = 0.75;
 /// 分行後的字要比單行大這麼多倍，才值得分行。
@@ -739,6 +779,8 @@ pub fn build_composite(
     let mut shapes: Vec<ColoredShape> = Vec::new();
     let mut blends: Vec<Option<BlendPair>> = Vec::new();
     let mut smart: Vec<bool> = Vec::new();
+    // 每個形狀屬於哪個物件（用物件的編號）
+    let mut owner: Vec<String> = Vec::new();
     let mut notes: Vec<UserMessage> = Vec::new();
     // 每個物件放好之後的外框，用來提醒「文字壓在別的東西上」
     let mut spans: Vec<(bool, [f64; 4])> = Vec::new();
@@ -825,6 +867,7 @@ pub fn build_composite(
             });
             blends.push(blend);
             smart.push(built.smart);
+            owner.push(item.id.clone());
         }
         if let Some(s) = span {
             spans.push((is_text, s));
@@ -845,9 +888,11 @@ pub fn build_composite(
         contour_fill: true,
         flow_fill: true,
         field_fill: true,
+        collect_layers: true,
         ..s.clone()
     };
     let mut preview = build_plan_styled(&shapes, &blends, &smart, 1.0, &req.hoop, &settings);
+    let layers = item_layers(&mut preview, &owner, &req.items);
     if preview.blocked.is_none() {
         // 整體縮小之後，文字不能小到繡不出來
         let k = preview.fitted_scale;
@@ -862,6 +907,7 @@ pub fn build_composite(
                     Some("請換一個比較大的框，或把東西排得近一點。"),
                 )),
                 items: infos,
+                layers: Vec::new(),
             };
         }
         if text_overlaps(&spans) {
@@ -878,5 +924,6 @@ pub fn build_composite(
     CompositeResult {
         preview,
         items: infos,
+        layers,
     }
 }

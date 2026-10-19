@@ -976,3 +976,82 @@ fn 行距加大整段變高() {
     };
     assert!(h(2.0) > h(1.3) + 200.0);
 }
+
+#[test]
+fn 每個物件都有自己的針跡層_順序照上下層() {
+    let items = vec![text("t", "王", -200.0, 0.0), circle("c", 300.0, 200.0, 0.0)];
+    let r = build_composite(&fonts(), &req(items, "b70-large"), &[]);
+    assert_eq!(
+        r.layers.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(),
+        ["t", "c"]
+    );
+    for l in &r.layers {
+        assert!(l.parts.iter().all(|p| !p.runs.is_empty()));
+    }
+    // 層裡的針點總數等於預覽計畫裡的下針數（只是還沒接上跳針與固定針）
+    let points: usize = r
+        .layers
+        .iter()
+        .flat_map(|l| &l.parts)
+        .flat_map(|p| &p.runs)
+        .map(Vec::len)
+        .sum();
+    let stitches = r
+        .preview
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .count();
+    assert!(
+        points > 0 && points <= stitches + 10 && stitches <= points + 40 * r.layers.len() * 8,
+        "{points} {stitches}"
+    );
+    // 預覽結果本身不再帶重複的層
+    assert!(r.preview.layers.is_empty());
+}
+
+#[test]
+fn 移動物件_它的針跡層跟著平移同樣的距離() {
+    let first = |x: f64| {
+        let r = build_composite(
+            &fonts(),
+            &req(vec![circle("c", 300.0, x, 0.0)], "b70-large"),
+            &[],
+        );
+        let p = r.layers[0].parts[0].runs[0][0];
+        p
+    };
+    let (a, b) = (first(0.0), first(300.0));
+    assert!((b[0] - a[0] - 300.0).abs() < 20.0, "{a:?} {b:?}");
+    assert!((b[1] - a[1]).abs() < 20.0);
+}
+
+#[test]
+fn 有問題的物件沒有針跡層() {
+    let items = vec![text("blank", "   ", 0.0, 0.0), circle("c", 300.0, 0.0, 0.0)];
+    let r = build_composite(&fonts(), &req(items, "b70-large"), &[]);
+    assert_eq!(
+        r.layers.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(),
+        ["c"]
+    );
+}
+
+#[test]
+fn 混色圖片的一個物件有兩種線色的層() {
+    // 一般形狀：只有一個顏色的層
+    let r = build_composite(
+        &fonts(),
+        &req(vec![circle("c", 400.0, 0.0, 0.0)], "b70-large"),
+        &[],
+    );
+    assert_eq!(
+        r.layers[0]
+            .parts
+            .iter()
+            .map(|p| p.color.name.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1
+    );
+}

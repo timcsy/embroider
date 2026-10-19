@@ -174,3 +174,90 @@ describe('畫布放大與平移', () => {
     expect(anchorAfter.y).toBeCloseTo(anchorBefore.y)
   })
 })
+
+import { describeGesture } from '../src/lib/geometry'
+
+describe('拖動時顯示的數字', () => {
+  const b: Box = { cx: 120, cy: -50, w: 420, h: 210, rot: 0 }
+
+  it('移動：離框中心多遠，用公分，左右上下', () => {
+    expect(describeGesture('move', b)).toBe('往右 1.2 公分，往上 0.5 公分')
+  })
+
+  it('在中心線上就說「正中間」', () => {
+    expect(describeGesture('move', { ...b, cx: 0, cy: 0 })).toBe('正中間')
+    expect(describeGesture('move', { ...b, cx: 0, cy: 80 })).toBe('左右置中，往下 0.8 公分')
+    expect(describeGesture('move', { ...b, cx: -300, cy: 0 })).toBe('往左 3.0 公分，上下置中')
+  })
+
+  it('縮放：寬 × 高（公分）', () => {
+    expect(describeGesture('resize', b)).toBe('寬 4.2 × 高 2.1 公分')
+  })
+
+  it('旋轉：幾度、方向', () => {
+    expect(describeGesture('rotate', { ...b, rot: 30 })).toBe('向右轉 30 度')
+    expect(describeGesture('rotate', { ...b, rot: -15 })).toBe('向左轉 15 度')
+    expect(describeGesture('rotate', { ...b, rot: 0 })).toBe('擺正')
+  })
+})
+
+import { aabb, snapMove } from '../src/lib/geometry'
+
+describe('對齊參考線與吸附', () => {
+  const me: Box = { cx: 0, cy: 0, w: 100, h: 60, rot: 0 }
+  const safe = { w: 1000, h: 1600 }
+
+  it('外框：沒轉就是自己；轉九十度寬高對調', () => {
+    expect(aabb(me)).toEqual({ l: -50, r: 50, t: -30, b: 30 })
+    const r = aabb({ ...me, rot: 90 })
+    expect(r.r).toBeCloseTo(30)
+    expect(r.b).toBeCloseTo(50)
+  })
+
+  it('中心對齊別的物件：吸過去並回報參考線', () => {
+    const other: Box = { cx: 300, cy: 200, w: 80, h: 80, rot: 0 }
+    const moving = { ...me, cx: 296, cy: -400 }
+    const s = snapMove(moving, [other], safe, 8)
+    expect(s.dx).toBeCloseTo(4)
+    expect(s.dy).toBeCloseTo(0)
+    expect(s.xs).toContain(300)
+  })
+
+  it('邊緣對齊：我的左邊貼到別人的右邊', () => {
+    const other: Box = { cx: 300, cy: 0, w: 100, h: 100, rot: 0 } // 右邊緣 350
+    const moving = { ...me, cx: 350 + 50 + 3, cy: 500 } // 左邊緣 353
+    const s = snapMove(moving, [other], safe, 8)
+    expect(s.dx).toBeCloseTo(-3)
+    expect(s.xs).toContain(350)
+  })
+
+  it('超出範圍就不吸', () => {
+    const other: Box = { cx: 300, cy: 0, w: 100, h: 100, rot: 0 }
+    const s = snapMove({ ...me, cx: 420, cy: 700 }, [other], safe, 8)
+    expect([s.dx, s.dy]).toEqual([0, 0])
+    expect(s.xs).toEqual([])
+    expect(s.ys).toEqual([])
+  })
+
+  it('吸到繡框的中線與安全範圍的邊', () => {
+    const s = snapMove({ ...me, cx: 3, cy: -800 + 30 + 4 }, [], safe, 8)
+    expect(s.dx).toBeCloseTo(-3) // 框的垂直中線 x = 0
+    expect(s.dy).toBeCloseTo(-4) // 上緣貼到安全範圍上邊 y = -800
+    expect(s.ys).toContain(-800)
+    expect(s.xs).toContain(0)
+  })
+
+  it('左右與上下各自吸附，互不影響', () => {
+    const other: Box = { cx: 300, cy: 200, w: 80, h: 80, rot: 0 }
+    const s = snapMove({ ...me, cx: 298, cy: 600 }, [other], safe, 8)
+    expect(s.dx).toBeCloseTo(2)
+    expect(s.dy).toBeCloseTo(0)
+  })
+
+  it('取最近的那一條', () => {
+    const a: Box = { cx: 100, cy: 0, w: 40, h: 40, rot: 0 }
+    const b: Box = { cx: 106, cy: 0, w: 40, h: 40, rot: 0 }
+    const s = snapMove({ ...me, cx: 105, cy: 900 }, [a, b], safe, 8)
+    expect(s.dx).toBeCloseTo(1)
+  })
+})

@@ -662,3 +662,69 @@ test.describe('畫布放大與平移', () => {
     await expect(page.getByTestId('zoom-fit')).toHaveCount(0)
   })
 })
+
+test('拖動時畫面上方顯示數字：位置、大小、角度，放開就消失', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const r = (await rectOf(page, 'item-1'))!
+  const cx = r.x + r.width / 2
+  const cy = r.y + r.height / 2
+  await expect(page.getByTestId('readout')).toHaveCount(0)
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 40, cy + 10, { steps: 4 })
+  await expect(page.getByTestId('readout')).toContainText('公分')
+  await page.mouse.up()
+  await expect(page.getByTestId('readout')).toHaveCount(0)
+
+  const h = (await page.getByTestId('handle-resize').nth(2).boundingBox())!
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(h.x + h.width / 2 + 30, h.y + h.height / 2 + 30, { steps: 4 })
+  await expect(page.getByTestId('readout')).toContainText('寬')
+  await page.mouse.up()
+
+  const rot = (await page.getByTestId('handle-rotate').boundingBox())!
+  const r2 = (await rectOf(page, 'item-1'))!
+  await page.mouse.move(rot.x + rot.width / 2, rot.y + rot.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(r2.x + r2.width / 2 + 120, r2.y + r2.height / 2, { steps: 6 })
+  await expect(page.getByTestId('readout')).toContainText('向右轉')
+  await page.mouse.up()
+})
+
+test('拖到快對齊別的東西時：出現參考線並吸過去', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await page.getByTestId('duplicate').click() // item-2 在 item-1 右下方
+  await expect(itemCount(page)).toHaveCount(2)
+  const a = (await rectOf(page, 'item-1'))!
+  const b = (await rectOf(page, 'item-2'))!
+  const bx = b.x + b.width / 2
+  const by = b.y + b.height / 2
+  const targetX = a.x + a.width / 2 + 3 // 離 item-1 的中心還差 3 像素
+  await page.mouse.move(bx, by)
+  await page.mouse.down()
+  await page.mouse.move(targetX, by + 30, { steps: 8 })
+  await expect(page.getByTestId('guide')).not.toHaveCount(0) // 線沒有寬度，不能用「看得到」判斷
+  await page.mouse.up()
+  await expect(page.getByTestId('guide')).toHaveCount(0)
+  const b2 = (await rectOf(page, 'item-2'))!
+  const a2 = (await rectOf(page, 'item-1'))!
+  expect(Math.abs(b2.x + b2.width / 2 - (a2.x + a2.width / 2))).toBeLessThan(1.5)
+})
+
+test('吸附不會讓一般拖移卡住：離得遠就照手指走', async ({ page }) => {
+  await open(page)
+  await shape(page, 'circle')
+  const r = (await rectOf(page, 'item-1'))!
+  const cx = r.x + r.width / 2
+  const cy = r.y + r.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 37, cy + 53, { steps: 6 })
+  await page.mouse.up()
+  const r2 = (await rectOf(page, 'item-1'))!
+  expect(Math.abs(r2.x - r.x - 37)).toBeLessThan(10)
+})

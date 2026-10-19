@@ -149,3 +149,80 @@ export function pinchZoom(base: View, start: Zoom, a: [Pt, Pt], b: [Pt, Pt]): Zo
   const s1 = base.scale * z
   return { z, px: mb.x - hx * s1 - base.ox, py: mb.y - hy * s1 - base.oy }
 }
+
+// ── 拖動時給她看的數字（白話、公分） ──
+
+const cm = (units: number) => (Math.abs(units) / 100).toFixed(1)
+
+/** 一個正在進行的操作（移動、縮放、旋轉）現在的狀態，用白話說明。`b` 是畫面上的外框（已套用整體縮小），也就是實際繡出來的位置與大小。 */
+export function describeGesture(kind: 'move' | 'resize' | 'rotate', b: Box): string {
+  if (kind === 'rotate') {
+    const deg = Math.round(b.rot)
+    return deg === 0 ? '擺正' : `${deg > 0 ? '向右轉' : '向左轉'} ${Math.abs(deg)} 度`
+  }
+  if (kind === 'resize') {
+    return `寬 ${cm(b.w)} × 高 ${cm(b.h)} 公分`
+  }
+  const x = Math.round(b.cx)
+  const y = Math.round(b.cy)
+  if (x === 0 && y === 0) return '正中間'
+  const horiz = x === 0 ? '左右置中' : `${x > 0 ? '往右' : '往左'} ${cm(x)} 公分`
+  const vert = y === 0 ? '上下置中' : `${y > 0 ? '往下' : '往上'} ${cm(y)} 公分`
+  return `${horiz}，${vert}`
+}
+
+// ── 對齊參考線與吸附（移動物件時） ──
+
+export interface Bounds {
+  l: number
+  r: number
+  t: number
+  b: number
+}
+
+/** 轉過的外框的最小方框（畫面座標）。 */
+export function aabb(b: Box): Bounds {
+  const a = (b.rot * Math.PI) / 180
+  const hw = (Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a))) / 2
+  const hh = (Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a))) / 2
+  return { l: b.cx - hw, r: b.cx + hw, t: b.cy - hh, b: b.cy + hh }
+}
+
+export interface Snap {
+  /** 要往左右、上下修正多少（畫面座標） */
+  dx: number
+  dy: number
+  /** 該畫出的垂直線（x）與水平線（y） */
+  xs: number[]
+  ys: number[]
+}
+
+/** 在候選的線裡找最靠近我的左、中、右（或上、中、下）的那一條，沒有在 `range` 內的就不吸。 */
+function nearest(mine: number[], lines: number[], range: number): { d: number; at: number } | null {
+  let best: { d: number; at: number } | null = null
+  for (const m of mine) {
+    for (const l of lines) {
+      const d = l - m
+      if (Math.abs(d) <= range && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: l }
+    }
+  }
+  return best
+}
+
+/**
+ * 移動物件時的吸附：我的左、中、右（上、中、下）靠近別的物件的左、中、右、或繡框的中線與安全範圍的邊，
+ * 就吸過去，並回報要畫哪些參考線。`safe` 是繡框可繡範圍的寬高（畫面座標）。
+ */
+export function snapMove(moving: Box, others: Box[], safe: { w: number; h: number }, range: number): Snap {
+  const m = aabb(moving)
+  const xLines = [0, -safe.w / 2, safe.w / 2]
+  const yLines = [0, -safe.h / 2, safe.h / 2]
+  for (const o of others) {
+    const a = aabb(o)
+    xLines.push(a.l, (a.l + a.r) / 2, a.r)
+    yLines.push(a.t, (a.t + a.b) / 2, a.b)
+  }
+  const sx = nearest([m.l, (m.l + m.r) / 2, m.r], xLines, range)
+  const sy = nearest([m.t, (m.t + m.b) / 2, m.b], yLines, range)
+  return { dx: sx?.d ?? 0, dy: sy?.d ?? 0, xs: sx ? [sx.at] : [], ys: sy ? [sy.at] : [] }
+}

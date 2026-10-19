@@ -6,6 +6,7 @@
   import type { EditorItem } from '../lib/editor'
   import {
     fromCanvas,
+    describeGesture,
     hitBox,
     itemBox,
     applyZoom,
@@ -17,7 +18,7 @@
     rotateTo,
     rotationHandle,
     snapAngle,
-    snapToCenter,
+    snapMove,
     topHit,
     zoomAround,
     type Box,
@@ -176,7 +177,11 @@
   // 兩根手指落在空白處：放大縮小與平移整個畫布（落在選到的物件上才是縮放物件）
   let canvasPinch: { zm: Zoom; a: [Pt, Pt] } | null = null
   let pinchStart: { id: string; scale: number; rotation: number; a: [Pt, Pt] } | null = null
-  let guides = $state({ x: false, y: false })
+  // 對齊參考線（框座標）：吸到什麼，就在那裡畫一條線
+  let guides = $state<{ xs: number[]; ys: number[] }>({ xs: [], ys: [] })
+  // 拖動時顯示的數字（位置、大小、角度）
+  let gesture = $state<'move' | 'resize' | 'rotate' | null>(null)
+  const readout = $derived(gesture && selectedBox ? describeGesture(gesture, selectedBox) : '')
 
   const local = (e: PointerEvent): Pt => {
     const r = (e.currentTarget as Element).getBoundingClientRect()
@@ -233,11 +238,13 @@
       const rp = rotatePx(selectedBox)
       if (dist(cp, rp) <= HANDLE_HIT) {
         drag = { mode: 'rotate', id: selected.id }
+        gesture = 'rotate'
         return
       }
       for (const { sx, sy } of corners(selectedBox)) {
         if (dist(cp, cornerPx(selectedBox, sx, sy)) <= HANDLE_HIT) {
           drag = { mode: 'resize', id: selected.id, scale: selected.scale, from: fromCanvas(view, cp.x, cp.y) }
+          gesture = 'resize'
           return
         }
       }
@@ -248,6 +255,7 @@
       const it = items[hit]
       if (it.id !== selectedId) onSelect(it.id)
       drag = { mode: 'move', id: it.id, start: cp, x: it.x, y: it.y }
+      gesture = null // 真的動了才顯示
     } else if (zm.z > 1) {
       // 放大後，拖空白處是平移；只是點一下才取消選取
       drag = { mode: 'pan', start: cp, zm: { ...zm }, moved: false }
@@ -284,6 +292,7 @@
     if (pinchStart && pointers.size >= 2) {
       const [a, b] = [...pointers.values()]
       const r = pinch(pinchStart, pinchStart.a, [a, b])
+      gesture = 'resize'
       onChange(pinchStart.id, { scale: r.scale, rotation: snapAngle(r.rotation) }, `pinch:${pinchStart.id}`)
       return
     }
@@ -301,9 +310,18 @@
     if (drag.mode === 'move') {
       const dx = (cp.x - drag.start.x) / view.scale / fit
       const dy = (cp.y - drag.start.y) / view.scale / fit
-      const s = snapToCenter(drag.x + dx, drag.y + dy, 8 / (view.scale * fit))
-      guides = { x: s.sx, y: s.sy }
-      onChange(it.id, { x: Math.round(s.x), y: Math.round(s.y) }, `move:${it.id}`)
+      // 想要放的位置（設計座標）→ 畫面座標的外框 → 吸附到別的物件與繡框的線
+      const cand = { ...it, x: drag.x + dx, y: drag.y + dy }
+      const mine = boxOf(cand)
+      const group = it.groupId
+      const others = items.filter((o) => o.id !== it.id && !(group && o.groupId === group)).map(boxOf)
+      const safe = { w: hoop.width - 2 * hoop.margin, h: hoop.height - 2 * hoop.margin }
+      const s = snapMove(mine, others, safe, 8 / view.scale)
+      guides = { xs: s.xs, ys: s.ys }
+      const nx = drag.x + dx + s.dx / fit
+      const ny = drag.y + dy + s.dy / fit
+      gesture = 'move'
+      onChange(it.id, { x: Math.round(nx), y: Math.round(ny) }, `move:${it.id}`)
     } else if (drag.mode === 'resize' && selectedBox) {
       const p = fromCanvas(view, cp.x, cp.y)
       onChange(it.id, { scale: resizeBy(drag.scale, drag.from, p, { x: selectedBox.cx, y: selectedBox.cy }) }, `scale:${it.id}`)
@@ -323,7 +341,8 @@
     if (pointers.size === 0) {
       if (drag?.mode === 'pan' && !drag.moved) onSelect(null)
       drag = null
-      guides = { x: false, y: false }
+      gesture = null
+      guides = { xs: [], ys: [] }
     }
   }
 
@@ -374,6 +393,9 @@
 <div class="area" bind:clientWidth={avail} bind:this={area}>
   <div class="stage" style="width:{width}px;height:{height}px" role="img" aria-label={label}>
     <canvas bind:this={canvas} style="width:{width}px;height:{height}px" data-testid="preview"></canvas>
+    {#if readout}
+      <div class="readout" role="status" data-testid="readout">{readout}</div>
+    {/if}
     <div class="zoom" role="group" aria-label={strings.editor.zoomIn}>
       <button onclick={() => zoomBy(1.4)} disabled={zm.z >= MAX_ZOOM} aria-label={strings.editor.zoomIn} data-testid="zoom-in">＋</button>
       <button onclick={() => zoomBy(1 / 1.4)} disabled={zm.z <= 1} aria-label={strings.editor.zoomOut} data-testid="zoom-out">－</button>
@@ -399,12 +421,12 @@
       onkeydown={onKey}
       use:wheel
     >
-      {#if guides.x}
-        <line x1={view.ox} y1="0" x2={view.ox} y2={height} class="guide" />
-      {/if}
-      {#if guides.y}
-        <line x1="0" y1={view.oy} x2={width} y2={view.oy} class="guide" />
-      {/if}
+      {#each guides.xs as gx (gx)}
+        <line x1={view.ox + gx * view.scale} y1="0" x2={view.ox + gx * view.scale} y2={height} class="guide" data-testid="guide" />
+      {/each}
+      {#each guides.ys as gy (gy)}
+        <line x1="0" y1={view.oy + gy * view.scale} x2={width} y2={view.oy + gy * view.scale} class="guide" data-testid="guide" />
+      {/each}
       {#each items as it, i (it.id)}
         {@const b = boxes[i]}
         {@const c = px(b)}
@@ -462,6 +484,7 @@
   .center { fill: #1a73e8; }
   .overlay.drawing { cursor: crosshair; }
   .live { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+  .readout { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 3; background: rgba(30, 30, 30, 0.82); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 0.95em; font-weight: 700; pointer-events: none; white-space: nowrap; }
   .zoom { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
   .zoom button { min-width: 44px; min-height: 44px; border: 2px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.92); font-size: 1.3em; font-weight: 700; line-height: 1; padding: 0 8px; }
   .zoom button:disabled { opacity: 0.35; }

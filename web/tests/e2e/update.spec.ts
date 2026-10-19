@@ -4,6 +4,12 @@ import { tmpdir } from 'node:os'
 import { extname, join, normalize } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
+// 這些測試要用到離線服務；在 localhost 預設不註冊，所以先打開旗標
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('embroider.sw', 'on'))
+})
+
+
 // 新版本的更新：開著的人不能一直停在舊版。
 // 做法：把建好的程式複製一份當伺服器，載入之後，把 sw.js 改成「新版」（多一段會回報版本的程式），
 // 看畫面是不是發現了、更新了，而且做到一半的設計還在。
@@ -115,4 +121,25 @@ test('畫面上看得到版本編號（才分得出開的是不是最新的）',
   await page.goto(`${origin}/`)
   await expect(page.getByTestId('build-id')).toContainText('版本', { timeout: 30_000 })
   await expect(page.getByTestId('build-id')).toContainText('20')
+})
+
+test.describe('自己的電腦（localhost）', () => {
+  test('預設不註冊離線服務，並且把以前註冊過的清掉，不會卡在舊版', async ({ page }) => {
+    // 先用旗標註冊一個
+    await page.goto(`${origin}/`)
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => true))
+    expect((await page.evaluate(() => navigator.serviceWorker.getRegistrations())).length).toBe(1)
+    // 拿掉旗標（像使用者平常那樣開）：重新載入後，離線服務與快取都被清掉
+    await page.evaluate(() => localStorage.removeItem('embroider.sw'))
+    await page.addInitScript(() => localStorage.removeItem('embroider.sw'))
+    await page.reload()
+    await expect(page.getByTestId('add-text')).toBeVisible({ timeout: 30_000 })
+    // 離線服務被登出；再載入一次，就不再被它接手，拿到的一定是伺服器上最新的
+    await page.reload()
+    await expect(page.getByTestId('add-text')).toBeVisible({ timeout: 30_000 })
+    expect(await page.evaluate(() => navigator.serviceWorker.controller === null)).toBe(true)
+    await expect
+      .poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length), { timeout: 15_000 })
+      .toBe(0)
+  })
 })

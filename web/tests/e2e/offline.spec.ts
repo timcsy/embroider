@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { addText } from './helpers'
 
+// 這些測試要用到離線服務；在 localhost 預設不註冊，所以先打開旗標
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('embroider.sw', 'on'))
+})
+
+
 async function ready(page: Page) {
   return addText(page)
 }

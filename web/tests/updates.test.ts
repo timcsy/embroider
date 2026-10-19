@@ -84,3 +84,20 @@ describe('新版本更新', () => {
     expect(updateSW).not.toHaveBeenCalled()
   })
 })
+
+import { wantsServiceWorker } from '../src/lib/appUpdater'
+
+describe('什麼時候用離線快取', () => {
+  it('正式的網址用；自己的電腦（localhost）不用，免得卡在舊版', () => {
+    expect(wantsServiceWorker('timcsy.github.io', null)).toBe(true)
+    expect(wantsServiceWorker('192.168.1.5', null)).toBe(true)
+    expect(wantsServiceWorker('localhost', null)).toBe(false)
+    expect(wantsServiceWorker('127.0.0.1', null)).toBe(false)
+    expect(wantsServiceWorker('mybook.local', null)).toBe(false)
+  })
+
+  it('在 localhost 想測離線：設了旗標就用', () => {
+    expect(wantsServiceWorker('localhost', 'on')).toBe(true)
+    expect(wantsServiceWorker('localhost', 'off')).toBe(false)
+  })
+})

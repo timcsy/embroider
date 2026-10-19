@@ -297,7 +297,16 @@ fn build_item(
             let mut notes = Vec::new();
             if max_width.is_none() {
                 if let Some(wrapped) = wrap_if_cramped(
-                    fonts, font_id, text, *height, &laid, item.scale, hoop, style,
+                    fonts,
+                    &TextSpec {
+                        font_id,
+                        text,
+                        height: *height,
+                        style,
+                    },
+                    &laid,
+                    item.scale,
+                    hoop,
                 ) {
                     laid = wrapped;
                     notes.push(UserMessage::new(
@@ -621,6 +630,14 @@ fn text_overlaps(spans: &[(bool, [f64; 4])]) -> bool {
     })
 }
 
+/// 要排的文字與樣式（打包起來傳，函式的參數才不會太多）。
+struct TextSpec<'a> {
+    font_id: &'a str,
+    text: &'a str,
+    height: f64,
+    style: TextStyle,
+}
+
 /// 單行得縮到比這個倍率還小，就考慮改成分行。
 const WRAP_IF_BELOW: f64 = 0.75;
 /// 分行後的字要比單行大這麼多倍，才值得分行。
@@ -629,13 +646,10 @@ const WRAP_MUST_GAIN: f64 = 1.15;
 /// 單行放進框得縮很小時，改成依框寬分行；分行沒有明顯比較大就維持單行。
 fn wrap_if_cramped(
     fonts: &FontSet,
-    font_id: &str,
-    text: &str,
-    height: f64,
+    spec: &TextSpec,
     single: &stitch_text::TextLayout,
     scale: f64,
     hoop: &Hoop,
-    style: TextStyle,
 ) -> Option<stitch_text::TextLayout> {
     let inner = match hoop.shape {
         stitch_core::hoop::HoopShape::Rect => 1.0,
@@ -656,13 +670,13 @@ fn wrap_if_cramped(
     }
     let wrapped = text_to_polygon_styled(
         fonts,
-        font_id,
-        text,
-        height,
+        spec.font_id,
+        spec.text,
+        spec.height,
         Layout::Wrap {
             max_width: safe_w / user,
         },
-        style,
+        spec.style,
     )
     .ok()?;
     (fit(&wrapped) > eff_single * WRAP_MUST_GAIN).then_some(wrapped)

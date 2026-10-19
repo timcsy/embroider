@@ -181,7 +181,15 @@
   let guides = $state<{ xs: number[]; ys: number[] }>({ xs: [], ys: [] })
   // 拖動時顯示的數字（位置、大小、角度）
   let gesture = $state<'move' | 'resize' | 'rotate' | null>(null)
-  const readout = $derived(gesture && selectedBox ? describeGesture(gesture, selectedBox) : '')
+  // 碰到鎖住的東西時的提示（幾秒後消失）
+  let hint = $state('')
+  let hintTimer: ReturnType<typeof setTimeout> | undefined
+  function showHint(text: string) {
+    hint = text
+    clearTimeout(hintTimer)
+    hintTimer = setTimeout(() => (hint = ''), 2200)
+  }
+  const readout = $derived(hint || (gesture && selectedBox ? describeGesture(gesture, selectedBox) : ''))
 
   const local = (e: PointerEvent): Pt => {
     const r = (e.currentTarget as Element).getBoundingClientRect()
@@ -234,7 +242,7 @@
       drag = { mode: 'pan', start: cp, zm: { ...zm }, moved: true }
       return
     }
-    if (selected && selectedBox) {
+    if (selected && selectedBox && !selected.locked) {
       const rp = rotatePx(selectedBox)
       if (dist(cp, rp) <= HANDLE_HIT) {
         drag = { mode: 'rotate', id: selected.id }
@@ -254,6 +262,11 @@
     if (hit >= 0) {
       const it = items[hit]
       if (it.id !== selectedId) onSelect(it.id)
+      if (it.locked) {
+        drag = null
+        showHint(strings.editor.lockedHint)
+        return
+      }
       drag = { mode: 'move', id: it.id, start: cp, x: it.x, y: it.y }
       gesture = null // 真的動了才顯示
     } else if (zm.z > 1) {
@@ -439,7 +452,11 @@
             class="box"
             class:on={it.id === selectedId}
             class:empty={emptyText(it)}
+            class:locked={it.locked}
           />
+          {#if it.locked}
+            <text class="lockmark" x={(b.w * view.scale) / 2 - 4} y={(-b.h * view.scale) / 2 + 16} text-anchor="end">🔒</text>
+          {/if}
           {#if emptyText(it)}
             <text class="hint" text-anchor="middle" dominant-baseline="middle">{strings.editor.typeHere}</text>
           {/if}
@@ -452,7 +469,7 @@
           style="stroke:{brush.css};stroke-width:{Math.max(1.5, brush.units * fit * view.scale)}px"
         />
       {/if}
-      {#if selected && selectedBox && !drawing}
+      {#if selected && selectedBox && !drawing && !selected.locked}
         {#each corners(selectedBox) as k (`${k.sx},${k.sy}`)}
           {@const p = cornerPx(selectedBox, k.sx, k.sy)}
           <circle cx={p.x} cy={p.y} r={HANDLE_R} class="handle" data-testid="handle-resize" />
@@ -477,6 +494,8 @@
   .box { fill: transparent; stroke: rgba(70, 60, 50, 0.28); stroke-width: 1; stroke-dasharray: 4 4; }
   .box.on { stroke: #1a73e8; stroke-width: 2; stroke-dasharray: none; fill: rgba(26, 115, 232, 0.06); }
   .box.empty { fill: rgba(255, 255, 255, 0.6); stroke: #1a73e8; stroke-dasharray: 6 4; }
+  .box.locked { stroke: #8a8a8a; stroke-dasharray: 2 3; }
+  .lockmark { font-size: 14px; pointer-events: none; }
   .hint { fill: #1a73e8; font-size: 15px; font-weight: 700; pointer-events: none; }
   .handle { fill: #fff; stroke: #1a73e8; stroke-width: 2.5; }
   .handle.rot { fill: #1a73e8; }

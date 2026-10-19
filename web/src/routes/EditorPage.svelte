@@ -27,6 +27,7 @@
     flipItem,
     groupSize,
     moveBy,
+    toggleLock,
     transformGroup,
     ungroup,
     mirrorCopy,
@@ -350,7 +351,7 @@
     if (p.version === 2 && Array.isArray(p.items)) {
       const map = new Map(loaded.map((s, i) => [savedImages[i]?.id, s.id]))
       // 舊的存檔沒有翻轉、組、弧形這些欄位：缺的補預設值
-      const defaults: Record<string, unknown> = { flipX: false, flipY: false, groupId: null }
+      const defaults: Record<string, unknown> = { flipX: false, flipY: false, groupId: null, locked: false }
       items = (p.items as EditorItem[]).map((it) => {
         const filled = { ...defaults, ...(it.kind === 'text' ? { curve: 0 } : {}), ...it } as EditorItem
         return filled.kind === 'image' ? { ...filled, imageId: map.get(filled.imageId) ?? filled.imageId } : filled
@@ -932,7 +933,11 @@
           </div>
 
           <h3>{strings.editor.layerTitle}</h3>
+          {#if it.locked}<p class="muted" data-testid="lock-note">{strings.editor.lockNote}</p>{/if}
           <div class="tools">
+            <button onclick={() => commit(toggleLock(doc, it.id))} aria-pressed={it.locked} class:on={it.locked} data-testid="lock">
+              {it.locked ? strings.editor.unlock : strings.editor.lock}
+            </button>
             <button onclick={() => patch(it.id, { rotation: it.rotation - 15 })}>↺ {strings.editor.turnLeft}</button>
             <button onclick={() => patch(it.id, { rotation: it.rotation + 15 })}>↻ {strings.editor.turnRight}</button>
             <button onclick={() => patch(it.id, { rotation: 0 })} disabled={it.rotation === 0}>{strings.editor.straighten}</button>

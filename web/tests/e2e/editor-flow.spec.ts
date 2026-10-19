@@ -728,3 +728,38 @@ test('吸附不會讓一般拖移卡住：離得遠就照手指走', async ({ pa
   const r2 = (await rectOf(page, 'item-1'))!
   expect(Math.abs(r2.x - r.x - 37)).toBeLessThan(10)
 })
+
+test('鎖住：拖不動、沒有把手、可以改顏色、解開後又能動', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('lock').click()
+  await expect(page.getByTestId('lock-note')).toBeVisible()
+  await expect(page.getByTestId('handle-resize')).toHaveCount(0)
+  await expect(page.getByTestId('handle-rotate')).toHaveCount(0)
+
+  const r0 = (await rectOf(page, 'item-1'))!
+  const cx = r0.x + r0.width / 2
+  const cy = r0.y + r0.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 60, cy + 40, { steps: 5 })
+  await expect(page.getByTestId('readout')).toContainText('鎖住')
+  await page.mouse.up()
+  const r1 = (await rectOf(page, 'item-1'))!
+  expect(Math.abs(r1.x - r0.x)).toBeLessThan(1)
+
+  // 鎖住的仍然能改顏色
+  await page.getByRole('radio', { name: '寶藍' }).click()
+  await expect(page.getByRole('radio', { name: '寶藍' })).toHaveAttribute('aria-checked', 'true')
+
+  // 解開
+  await page.getByTestId('lock').click()
+  await expect(page.getByTestId('handle-resize')).toHaveCount(4)
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 60, cy + 40, { steps: 5 })
+  await page.mouse.up()
+  const r2 = (await rectOf(page, 'item-1'))!
+  expect(r2.x - r0.x).toBeGreaterThan(40)
+})

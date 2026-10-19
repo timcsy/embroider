@@ -18,6 +18,8 @@ interface Base {
   flipY: boolean
   /** 同一組的物件一起移動（做一排、圍成一圈會自動成組）；單獨的是 null */
   groupId: string | null
+  /** 鎖住：不會被誤碰拖走、拉大或轉動（仍可改顏色、文字，也可以刪除、複製） */
+  locked: boolean
 }
 
 export interface TextItem extends Base {
@@ -116,6 +118,7 @@ const base = (id: string, at: { x: number; y: number }): Base => ({
   flipX: false,
   flipY: false,
   groupId: null,
+  locked: false,
 })
 
 export function addText(doc: EditorDoc): EditorDoc {
@@ -194,6 +197,7 @@ export function startDraw(doc: EditorDoc, points: P[], brush: Brush, fit: number
     flipX: false,
     flipY: false,
     groupId: null,
+    locked: false,
     kind: 'draw',
     strokes: [pts.map(([x, y]) => [round1(x - round1(cx)), round1(y - round1(cy))] as [number, number])],
     ...brush,
@@ -236,7 +240,11 @@ export function updateItem(doc: EditorDoc, id: string, patch: Partial<EditorItem
     ...doc,
     items: doc.items.map((it) => {
       if (it.id !== id) return it
-      const next = { ...it, ...patch } as EditorItem
+      // 鎖住的東西不接受位置、大小、方向、翻轉的改變（但「解鎖」本身要通過）
+      const placement = ['x', 'y', 'scale', 'rotation', 'flipX', 'flipY', 'strokes'] as const
+      const safe: Partial<EditorItem> = { ...patch }
+      if (it.locked && patch.locked !== false) for (const k of placement) delete (safe as Record<string, unknown>)[k]
+      const next = { ...it, ...safe } as EditorItem
       next.scale = clamp(Number(next.scale) || MIN_SCALE, MIN_SCALE, MAX_SCALE)
       next.rotation = wrapAngle(next.rotation)
       return next
@@ -258,7 +266,7 @@ export function centerItem(doc: EditorDoc, id: string, axis: 'x' | 'y' | 'both')
 export function duplicateItem(doc: EditorDoc, id: string): EditorDoc {
   const src = doc.items.find((i) => i.id === id)
   if (!src) return doc
-  const copy: EditorItem = { ...src, id: nextId(doc.items), x: src.x + STAGGER, y: src.y + STAGGER, groupId: null }
+  const copy: EditorItem = { ...src, id: nextId(doc.items), x: src.x + STAGGER, y: src.y + STAGGER, groupId: null, locked: false }
   const at = doc.items.indexOf(src)
   const items = [...doc.items]
   items.splice(at + 1, 0, copy)
@@ -391,7 +399,7 @@ export function toRequest(
 /** 舊版（一次只有文字或一張圖）存下來的設計，轉成編輯器的一個物件。 */
 export function fromLegacy(p: Record<string, unknown>, imageId?: string): EditorItem | null {
   const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
-  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1, flipX: false, flipY: false, groupId: null }
+  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1, flipX: false, flipY: false, groupId: null, locked: false }
   if (p.mode === 'text') {
     return {
       ...base,
@@ -491,8 +499,8 @@ export function mirrorCopy(doc: EditorDoc, id: string, axis: 'x' | 'y'): EditorD
     doc,
     src,
     axis === 'x'
-      ? { x: -src.x, rotation: wrapAngle(-src.rotation), flipX: !src.flipX, groupId: null }
-      : { y: -src.y, rotation: wrapAngle(-src.rotation), flipY: !src.flipY, groupId: null },
+      ? { x: -src.x, rotation: wrapAngle(-src.rotation), flipX: !src.flipX, groupId: null, locked: false }
+      : { y: -src.y, rotation: wrapAngle(-src.rotation), flipY: !src.flipY, groupId: null, locked: false },
     [],
   )
   const items = [...doc.items]
@@ -523,7 +531,9 @@ export function moveBy(doc: EditorDoc, id: string, dx: number, dy: number, solo:
   return {
     ...doc,
     items: doc.items.map((o) =>
-      o.id === id || (group !== null && o.groupId === group) ? ({ ...o, x: o.x + dx, y: o.y + dy } as EditorItem) : o,
+      (o.id === id || (group !== null && o.groupId === group)) && !o.locked
+        ? ({ ...o, x: o.x + dx, y: o.y + dy } as EditorItem)
+        : o,
     ),
   }
 }
@@ -554,7 +564,7 @@ export function transformGroup(doc: EditorDoc, id: string, o: { factor: number; 
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2
   const a = (o.turn * Math.PI) / 180
-  const ids = new Set(members.map((m) => m.id))
+  const ids = new Set(members.filter((m) => !m.locked).map((m) => m.id))
   let next = doc
   for (const m of doc.items) {
     if (!ids.has(m.id)) continue
@@ -568,4 +578,10 @@ export function transformGroup(doc: EditorDoc, id: string, o: { factor: number; 
     } as Partial<EditorItem>)
   }
   return next
+}
+
+/** 鎖住或解開。 */
+export function toggleLock(doc: EditorDoc, id: string): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  return it ? updateItem(doc, id, { locked: !it.locked }) : doc
 }

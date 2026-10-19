@@ -512,3 +512,60 @@ describe('整組一起縮放、旋轉', () => {
     expect(t.items.every((i) => i.scale <= 20)).toBe(true)
   })
 })
+
+import { toggleLock } from '../src/lib/editor'
+
+describe('鎖定', () => {
+  it('預設沒鎖；鎖了再按就解開', () => {
+    let d = docWith()
+    expect(d.items[0].locked).toBe(false)
+    d = toggleLock(d, d.items[0].id)
+    expect(d.items[0].locked).toBe(true)
+    d = toggleLock(d, d.items[0].id)
+    expect(d.items[0].locked).toBe(false)
+  })
+
+  it('鎖住的東西，移動、縮放、旋轉都沒有效果', () => {
+    let d = docWith('rect', { x: 10, y: 20 })
+    const id = d.items[0].id
+    d = toggleLock(d, id)
+    const moved = moveBy(d, id, 50, 50, false)
+    expect([moved.items[0].x, moved.items[0].y]).toEqual([10, 20])
+    const t = transformGroup(d, id, { factor: 2, turn: 45 })
+    expect(t.items[0]).toMatchObject({ scale: 1, rotation: 0, x: 10, y: 20 })
+    const u = updateItem(d, id, { scale: 3, rotation: 90, x: 99 })
+    expect(u.items[0]).toMatchObject({ scale: 1, rotation: 0, x: 10 })
+  })
+
+  it('鎖住的東西仍然可以改顏色、文字、解鎖、刪除、複製', () => {
+    let d = addText(emptyDoc(hoop.id))
+    const id = d.items[0].id
+    d = toggleLock(d, id)
+    d = updateItem(d, id, { text: '王小明', colorIdx: 4 } as Partial<EditorItem>)
+    expect(d.items[0]).toMatchObject({ text: '王小明', colorIdx: 4 })
+    expect(duplicateItem(d, id).items).toHaveLength(2)
+    expect(removeItem(d, id).doc.items).toHaveLength(0)
+  })
+
+  it('一組裡有鎖住的：整組移動時，鎖住的那個不動', () => {
+    const d0 = docWith('rect', { x: 0, y: 0 })
+    let d = repeatRow(d0, d0.items[0].id, { count: 3, gap: 0, axis: 'x', size: { width: 100, height: 50 } })
+    d = toggleLock(d, d.items[1].id)
+    const before = d.items.map((i) => i.x)
+    const moved = moveBy(d, d.items[0].id, 40, 0, false)
+    expect(moved.items.map((i) => i.x)).toEqual([before[0] + 40, before[1], before[2] + 40])
+  })
+
+  it('複製出來的新物件不會是鎖住的', () => {
+    let d = docWith()
+    d = toggleLock(d, d.items[0].id)
+    const copy = duplicateItem(d, d.items[0].id)
+    expect(copy.items.at(-1)?.locked).toBe(false)
+  })
+
+  it('舊的存檔沒有 locked 欄位，也當成沒鎖', () => {
+    const d = docWith()
+    const legacy = { ...d, items: d.items.map((i) => ({ ...i, locked: undefined })) } as unknown as EditorDoc
+    expect(moveBy(legacy, legacy.items[0].id, 3, 0, false).items[0].x).toBe(3)
+  })
+})

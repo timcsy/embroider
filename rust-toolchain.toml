@@ -1,0 +1,5 @@
+# 固定版本：本機與 CI 用同一版，靜態檢查的結果才一致（新版的檢查規則會不一樣）。要升級時一起改。
+[toolchain]
+channel = "1.94.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

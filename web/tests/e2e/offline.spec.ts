@@ -95,21 +95,27 @@ test('最近做過的設計：存出後重新整理仍在，可以拿來用或�
   await expect(page.getByTestId('recent')).toHaveCount(0)
 
   await box.fill('王小明')
-  await page.getByRole('radio', { name: '楷體' }).click()
+  // 楷體是按需下載的字型：等它下載好、換過去
+  await page.getByRole('radio', { name: /楷體/ }).click()
+  await expect(page.getByTestId('font-kai')).toHaveAttribute('aria-checked', 'true', { timeout: 60_000 })
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
   await page.getByTestId('save').click()
   await expect(page.getByTestId('export-sheet')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '好了' }).click()
   await expect(page.getByTestId('recent')).toContainText('王小明')
+  await page.waitForTimeout(1200) // 自動儲存
 
+  // 重新整理：做到一半的設計會接著做；先全部清掉，才能看出「拿來用」是從最近做過的清單來的
   await page.reload()
-  const box2 = await ready(page)
-  await expect(page.getByTestId('recent')).toContainText('王小明')
-  await expect(box2).toHaveValue('')
+  await expect(page.getByTestId('recent')).toContainText('王小明', { timeout: 30_000 })
+  await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('start-over').click()
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(0)
 
   await page.getByTestId('restore').click()
-  await expect(box2).toHaveValue('王小明')
-  await expect(page.getByRole('radio', { name: '楷體' })).toHaveAttribute('aria-checked', 'true')
+  const box2 = page.getByRole('textbox', { name: '想繡什麼字？' })
+  await expect(box2).toHaveValue('王小明', { timeout: 30_000 })
+  await expect(page.getByTestId('font-kai')).toHaveAttribute('aria-checked', 'true', { timeout: 60_000 })
 
   await page.getByRole('button', { name: /刪掉 王小明/ }).click()
   await expect(page.getByTestId('recent')).toHaveCount(0)

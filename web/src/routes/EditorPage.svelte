@@ -60,6 +60,7 @@
     type Removed,
   } from '../lib/editor'
   import { downloadFiles, nextSequence } from '../lib/export'
+  import { flushHook } from '../lib/appUpdater'
   import { applyTemplate, TEMPLATES } from '../lib/templates'
   import { createLatestRunner } from '../lib/scheduler'
   import { createTips, type TipId } from '../lib/tips'
@@ -89,6 +90,7 @@
     prefs,
     formats,
     onTry,
+    onWork = () => {},
   }: {
     client: CoreClient
     fonts: FontManager
@@ -96,6 +98,8 @@
     prefs: Prefs
     formats: OutputFormatInfo[]
     onTry: () => void
+    /** 有沒有做到一半的東西（有的話，新版本不能擅自更新） */
+    onWork?: (has: boolean) => void
   } = $props()
 
   // 寬螢幕（平板橫放、電腦）：加東西與存檔放在上面的工具列，畫布與工具區各自捲動
@@ -515,6 +519,15 @@
     }, 600)
     return () => clearTimeout(timer)
   })
+
+  // 更新新版本之前，先把做到一半的設計存起來；並告訴外面現在有沒有做到一半的東西
+  $effect(() => {
+    flushHook.current = async () => {
+      if (doc.items.length === 0) await clearCurrent()
+      else await saveCurrent(currentDraft())
+    }
+  })
+  $effect(() => onWork(doc.items.length > 0))
 
   function startOver() {
     resumed = false
@@ -1203,6 +1216,7 @@
         <button class="secondary" onclick={() => save('all')} disabled={!canSave || saving || computing} data-testid="save-all">
           {strings.actions.saveAll}
         </button>
+        <p class="muted center" data-testid="build-id">{strings.update.version(__BUILD_ID__)}</p>
         <button class="secondary" onclick={startOver} disabled={doc.items.length === 0} data-testid="start-over">{strings.editor.startOver}</button>
         <button class="secondary" onclick={onTry} data-testid="try-entry">{strings.actions.tryEntry}</button>
       </section>

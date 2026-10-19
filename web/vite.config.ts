@@ -1,10 +1,24 @@
 /// <reference types="vitest/config" />
+import { execSync } from 'node:child_process'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { FONT_FILES } from './src/lib/fonts.ts'
 
+// 版本編號：建置的時間加上程式碼的版本（沒有 git 就只有時間），畫面上看得到，才分得出現在開的是不是最新的
+function buildId(): string {
+  let hash = ''
+  try {
+    hash = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    // 沒有 git 也沒關係
+  }
+  const d = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 16).replace('T', ' ')
+  return hash ? `${d} · ${hash}` : d
+}
+
 export default defineConfig({
+  define: { __BUILD_ID__: JSON.stringify(buildId()) },
   // 相對路徑：放在任何子路徑（例如 GitHub Pages）都能運作
   base: './',
   plugins: [

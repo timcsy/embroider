@@ -68,6 +68,13 @@ export const strings = {
 
   updating: '正在更新…',
 
+  update: {
+    available: '有新版本了。',
+    now: '馬上更新',
+    note: '更新時會先把做到一半的設計存起來，更新完會接著做。',
+    version: (id: string) => `版本 ${id}`,
+  },
+
   editor: {
     canvasLabel: '繡布。用手指拖移東西、拉角改大小、拉上面的圓點轉方向。',
     typeHere: '在下面輸入文字',

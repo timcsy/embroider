@@ -915,3 +915,43 @@ test('多選與畫畫時不顯示小工具列', async ({ page }) => {
   await page.getByTestId('add-draw').click()
   await expect(page.getByTestId('mini-bar')).toHaveCount(0)
 })
+
+// ── 範本 ──
+test.describe('範本', () => {
+  test('空白時就有「從範本開始」；名字標籤：直接打字就好', async ({ page }) => {
+    await open(page)
+    await expect(page.getByTestId('start-templates')).toBeVisible()
+    await page.getByTestId('template-name-tag').click()
+    await expect(itemCount(page)).toHaveCount(2)
+    await expect(page.getByTestId('start-templates')).toHaveCount(0)
+    const box = page.getByRole('textbox', { name: '想繡什麼字？' })
+    await expect(box).toBeVisible()
+    await box.fill('王小明')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('save')).toBeEnabled()
+  })
+
+  test('圓形標籤：一個圓框加一行弧形字；花邊：一整排、是同一組', async ({ page }) => {
+    await open(page)
+    await page.getByTestId('template-round-tag').click()
+    await expect(itemCount(page)).toHaveCount(2)
+    await page.getByRole('textbox', { name: '想繡什麼字？' }).fill('手作')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('alert')).toHaveCount(0)
+
+    await page.getByTestId('add-template').click()
+    await page.getByTestId('template-border').click()
+    await expect(itemCount(page).nth(6)).toBeAttached()
+    await expect(page.getByTestId('group-note')).toBeVisible()
+    await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
+  })
+
+  test('小框也放得下（範本會依框的大小調整），不會被擋', async ({ page }) => {
+    await open(page)
+    await page.getByRole('radio', { name: /小框/ }).click()
+    await page.getByTestId('template-border').click()
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await expect(page.getByTestId('save')).toBeEnabled()
+  })
+})

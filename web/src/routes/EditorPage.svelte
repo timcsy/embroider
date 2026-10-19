@@ -60,6 +60,7 @@
     type Removed,
   } from '../lib/editor'
   import { downloadFiles, nextSequence } from '../lib/export'
+  import { applyTemplate, TEMPLATES } from '../lib/templates'
   import { fitImageSizeCm } from '../lib/fitSize'
   import { FONT_FILES } from '../lib/fonts'
   import { History } from '../lib/history'
@@ -598,6 +599,12 @@
 
   const shapeKinds: ShapeKind[] = ['circle', 'rect', 'heart', 'star', 'line']
   let shapeMenu = $state(false)
+  let templateMenu = $state(false)
+  function useTemplate(id: string) {
+    commit(applyTemplate(doc, id, hoop))
+    templateMenu = false
+    shapeMenu = false
+  }
 </script>
 
 {#snippet addBar()}
@@ -609,6 +616,7 @@
           <button onclick={() => cameraInput?.click()}>{strings.editor.addPhoto}</button>
           <button onclick={() => (shapeMenu = !shapeMenu)} aria-expanded={shapeMenu} data-testid="add-shape">{strings.editor.addShape}</button>
           <button onclick={startDrawing} data-testid="add-draw">{strings.editor.addDraw}</button>
+          <button onclick={() => { templateMenu = !templateMenu; shapeMenu = false }} aria-expanded={templateMenu} data-testid="add-template">{strings.editor.templates}</button>
           <button onclick={() => (multiMode = !multiMode)} aria-pressed={multiMode} class:on={multiMode} data-testid="multi-toggle">{multiMode ? strings.editor.multiOn : strings.editor.multi}</button>
         </div>
         {#if shapeMenu}
@@ -627,10 +635,26 @@
             </div>
           </div>
         {/if}
+        {#if templateMenu}
+          <div class="menu" data-testid="template-menu">
+            {@render templateList()}
+          </div>
+        {/if}
         {#if loadingImage}<p class="muted" role="status">{strings.image.loading}</p>{/if}
         {#if imageProblem}<Notice message={imageProblem} tone="warn" />{/if}
       </div>
 
+{/snippet}
+
+{#snippet templateList()}
+  <div class="templates" role="group" aria-label={strings.editor.templatesTitle}>
+    {#each TEMPLATES as t (t.id)}
+      <button onclick={() => useTemplate(t.id)} data-testid="template-{t.id}">
+        <strong>{t.name}</strong>
+        <span>{t.description}</span>
+      </button>
+    {/each}
+  </div>
 {/snippet}
 
 {#snippet saveBar()}
@@ -721,6 +745,14 @@
 
       {#if !wide}
         {@render addBar()}
+      {/if}
+
+      {#if doc.items.length === 0}
+        <div class="card start" data-testid="start-templates">
+          <h2>{strings.editor.templatesTitle}</h2>
+          <p class="muted">{strings.editor.templatesHint}</p>
+          {@render templateList()}
+        </div>
       {/if}
 
       {#if drawing}
@@ -1135,6 +1167,11 @@
   .save.bar { position: static; padding: 0; background: none; z-index: auto; flex: none; }
   .save.bar .primary { width: auto; min-width: 150px; min-height: 48px; padding: 0 22px; font-size: 1.05em; }
   .save.bar .default { display: none; }
+  .templates { display: grid; gap: 8px; margin-top: 8px; }
+  .templates button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 64px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
+  .templates button strong { font-size: 1.02em; }
+  .templates button span { color: var(--muted); font-size: 0.85em; }
+  .add-bar.bar > .menu { min-width: 300px; }
   .adds { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .adds button, .tools button, .shapes button { min-height: 52px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
   .adds button:first-child { border-color: var(--accent); }

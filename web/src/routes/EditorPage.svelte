@@ -61,6 +61,7 @@
   } from '../lib/editor'
   import { downloadFiles, nextSequence } from '../lib/export'
   import { applyTemplate, TEMPLATES } from '../lib/templates'
+  import { createTips, type TipId } from '../lib/tips'
   import { fitImageSizeCm } from '../lib/fitSize'
   import { FONT_FILES } from '../lib/fonts'
   import type { FontManager } from '../lib/fontManager'
@@ -204,6 +205,17 @@
     fileInput?.click()
   }
 
+  // ── 第一次使用的提示：一次一個，做到就換下一個，用熟了就退場 ──
+  const tips = createTips({
+    getItem: (k) => localStorage.getItem(k),
+    setItem: (k, v) => localStorage.setItem(k, v),
+  })
+  let tipNow = $state<TipId | null>(tips.current())
+  $effect(() => tips.onChange(() => (tipNow = tips.current())))
+  $effect(() => {
+    if (doc.items.length > 0) tips.did('add')
+  })
+
   // ── 字型：按需下載 ──
   let fontTick = $state(0)
   $effect(() => fonts.onChange(() => fontTick++))
@@ -229,6 +241,9 @@
 
   function patch(id: string, p: Partial<EditorItem>, key?: string) {
     const it = doc.items.find((i) => i.id === id)
+    const keys = Object.keys(p)
+    if (keys.includes('x') || keys.includes('y')) tips.did('move')
+    if (keys.includes('scale') || keys.includes('rotation')) tips.did('resize')
     // 多選：拖其中一個，選到的一起動
     if (it && pickedIds.length > 1 && pickedIds.includes(id) && Object.keys(p).length > 0 && Object.keys(p).every((k) => k === 'x' || k === 'y')) {
       commit(moveSelected(doc, (p.x ?? it.x) - it.x, (p.y ?? it.y) - it.y), key ? `${key}:multi` : undefined)
@@ -465,7 +480,10 @@
     void loadCurrent().then(async (draft) => {
       if (draft && doc.items.length === 0) {
         const items = (draft.params as { items?: unknown[] }).items
-        if (Array.isArray(items) && items.length > 0 && (await applySaved(draft.params, draft.images))) resumed = true
+        if (Array.isArray(items) && items.length > 0 && (await applySaved(draft.params, draft.images))) {
+          resumed = true
+          tips.skipTo('move')
+        }
       }
       autosaveReady = true
     })
@@ -771,6 +789,12 @@
     </section>
 
     <section class="panel-col">
+      {#if tipNow}
+        <div class="tip" role="status" data-testid="tip" data-tip={tipNow}>
+          <span>{strings.editor.tip[tipNow]}</span>
+          <button onclick={() => tips.dismiss()} data-testid="tip-dismiss">{strings.editor.tip.dismiss}</button>
+        </div>
+      {/if}
       {#each preview?.adjustments ?? [] as m (m.code + m.text)}
         <Notice message={m} />
       {/each}
@@ -1252,6 +1276,9 @@
   .group p { margin: 8px 0; }
   .tools button.on { border-color: var(--accent); background: #fdecec; }
   .toast button { min-height: 48px; padding: 0 16px; border: 2px solid var(--accent); border-radius: 10px; background: #fff; font-weight: 700; }
+  .tip { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 8px 12px; background: #eef5ff; border: 2px solid #9db8e8; border-radius: 12px; }
+  .tip span { flex: 1; }
+  .tip button { min-height: 44px; padding: 0 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 0.85em; white-space: nowrap; }
   .status { min-height: 1.5em; }
   .hint { text-align: center; }
   .pick { display: flex; gap: 10px; margin-top: 8px; }

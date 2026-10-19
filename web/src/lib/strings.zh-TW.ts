@@ -82,6 +82,12 @@ export const strings = {
     kinds: { text: '文字', image: '圖片', shape: '圖案', draw: '手繪' },
     addDraw: '畫畫',
     resumed: '已經接著上次做到的地方。',
+    tip: {
+      add: '小提示：先按「加文字」，打上你的名字。',
+      move: '小提示：用手指按住東西拖一拖，就能移到想要的位置。',
+      resize: '小提示：拉四個角可以放大縮小，拉上面的圓點可以轉方向。',
+      dismiss: '不用提醒了',
+    },
     align: '多行時怎麼對齊',
     alignLeftText: '靠左',
     alignCenterText: '置中',

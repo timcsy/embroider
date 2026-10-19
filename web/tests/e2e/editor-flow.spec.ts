@@ -995,3 +995,50 @@ test.describe('文字樣式', () => {
     await expect(page.getByTestId('align-text-left')).toHaveAttribute('aria-checked', 'true')
   })
 })
+
+// ── 第一次使用的提示 ──
+test.describe('第一次使用的提示', () => {
+  test('一次一個，做到就換下一個，做完就沒有了；重新打開不再出現', async ({ page }) => {
+    await open(page)
+    await expect(page.getByTestId('tip')).toHaveAttribute('data-tip', 'add')
+    await shape(page, 'rect')
+    await expect(page.getByTestId('tip')).toHaveAttribute('data-tip', 'move')
+    const r = (await rectOf(page, 'item-1'))!
+    await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(r.x + r.width / 2 + 20, r.y + r.height / 2, { steps: 4 })
+    await page.mouse.up()
+    await expect(page.getByTestId('tip')).toHaveAttribute('data-tip', 'resize')
+    await page.getByRole('button', { name: /向右轉/ }).click()
+    await expect(page.getByTestId('tip')).toHaveCount(0)
+    await page.waitForTimeout(1200)
+    await page.reload()
+    await expect(page.getByTestId('add-text')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('tip')).toHaveCount(0)
+  })
+
+  test('按「不用提醒了」就不再出現，重新打開也是', async ({ page }) => {
+    await open(page)
+    await page.getByTestId('tip-dismiss').click()
+    await expect(page.getByTestId('tip')).toHaveCount(0)
+    await page.reload()
+    await expect(page.getByTestId('add-text')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('tip')).toHaveCount(0)
+  })
+
+  test('接著上次做到一半的設計：不再教「加東西」', async ({ page }) => {
+    await open(page)
+    await shape(page, 'star')
+    await page.waitForTimeout(1500)
+    await page.evaluate(() => localStorage.removeItem('embroider.tips'))
+    await page.reload()
+    await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('tip')).toHaveAttribute('data-tip', 'move')
+  })
+
+  test('提示的文字是白話、按鈕夠大', async ({ page }) => {
+    await open(page)
+    await expect(page.getByTestId('tip')).toContainText('加文字')
+    expect((await page.getByTestId('tip-dismiss').boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  })
+})

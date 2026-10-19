@@ -675,6 +675,9 @@
           selectedIds={pickedIds}
           multi={multiMode}
           onToggle={toggle}
+          onDuplicate={(id) => commit(duplicateItem(doc, id))}
+          onLock={(id) => commit(toggleLock(doc, id))}
+          onLayer={(id) => commit(moveLayer(doc, id, 'forward'))}
           onMarquee={marquee}
           label={strings.text.preview}
           onSelect={select}

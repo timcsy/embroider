@@ -47,6 +47,9 @@
     onChange,
     onRemove,
     onToggle = () => {},
+    onDuplicate = () => {},
+    onLock = () => {},
+    onLayer = () => {},
     onMarquee = () => {},
     onStroke = () => {},
   }: {
@@ -66,6 +69,9 @@
     onChange: (id: string, patch: Partial<EditorItem>, key: string) => void
     onRemove: (id: string) => void
     onToggle?: (id: string) => void
+    onDuplicate?: (id: string) => void
+    onLock?: (id: string) => void
+    onLayer?: (id: string) => void
     onMarquee?: (ids: string[], additive: boolean) => void
     /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
     /** 寬螢幕（畫布在左、工具在右）：畫布盡量放大；窄螢幕要留位置給下面的工具 */
@@ -154,6 +160,36 @@
   const selected = $derived(items.find((i) => i.id === selectedId) ?? null)
   const selectedBox = $derived(selected ? boxOf(selected) : null)
   const many = $derived(selectedIds.length > 1)
+
+  // 跟著選到的東西的小工具列：優先放在物件下面，再來上面，再來畫布的角落；
+  // 每個位置都要放得進畫布、而且不蓋住任何一個把手。拖動時先收起來。
+  const MINI_W = 4 * 46 + 3 * 4 + 12
+  const MINI_H = 58
+  const mini = $derived.by(() => {
+    if (!selected || !selectedBox || many || drawing || gesture) return null
+    const a = aabb(selectedBox)
+    const cx = view.ox + ((a.l + a.r) / 2) * view.scale
+    const centered = Math.min(Math.max(4, cx - MINI_W / 2), Math.max(4, width - MINI_W - 4))
+    const guard = selected.locked
+      ? []
+      : [...corners(selectedBox).map(({ sx, sy }) => cornerPx(selectedBox, sx, sy)), rotatePx(selectedBox)]
+    const clear = (p: { left: number; top: number }) =>
+      p.top >= 0 &&
+      p.top + MINI_H <= height &&
+      p.left + MINI_W <= width &&
+      guard.every(
+        (g) => g.x < p.left - HANDLE_HIT || g.x > p.left + MINI_W + HANDLE_HIT || g.y < p.top - HANDLE_HIT || g.y > p.top + MINI_H + HANDLE_HIT,
+      )
+    const tries = [
+      { left: centered, top: view.oy + a.b * view.scale + 30 },
+      { left: centered, top: view.oy + a.t * view.scale - ROTATE_GAP - 40 - MINI_H },
+      { left: 4, top: 4 },
+      { left: 4, top: height - MINI_H - 4 },
+      { left: Math.max(4, width - MINI_W - 4), top: height - MINI_H - 4 },
+    ]
+    return tries.find(clear) ?? tries[tries.length - 1]
+  })
+
   // 多選時，把選到的全部框成一個方框
   const union = $derived.by(() => {
     if (!many) return null
@@ -462,6 +498,14 @@
 <div class="area" bind:clientWidth={avail} bind:this={area}>
   <div class="stage" style="width:{width}px;height:{height}px" role="img" aria-label={label}>
     <canvas bind:this={canvas} style="width:{width}px;height:{height}px" data-testid="preview"></canvas>
+    {#if mini && selected}
+      <div class="mini" style="left:{mini.left}px;top:{mini.top}px" role="toolbar" aria-label={strings.editor.miniBar} data-testid="mini-bar">
+        <button onclick={() => onDuplicate(selected.id)} data-testid="mini-duplicate">{strings.editor.duplicate}</button>
+        <button onclick={() => onLayer(selected.id)} data-testid="mini-forward">{strings.editor.forwardShort}</button>
+        <button onclick={() => onLock(selected.id)} aria-pressed={selected.locked} data-testid="mini-lock">{selected.locked ? strings.editor.unlock : strings.editor.lock}</button>
+        <button class="danger" onclick={() => onRemove(selected.id)} data-testid="mini-remove">{strings.editor.remove}</button>
+      </div>
+    {/if}
     {#if readout}
       <div class="readout" role="status" data-testid="readout">{readout}</div>
     {/if}
@@ -567,6 +611,9 @@
   .center { fill: #1a73e8; }
   .overlay.drawing { cursor: crosshair; }
   .live { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+  .mini { position: absolute; z-index: 4; display: flex; gap: 4px; padding: 6px; background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+  .mini button { min-width: 46px; min-height: 44px; padding: 0 4px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-weight: 700; font-size: 0.82em; white-space: nowrap; }
+  .mini .danger { border-color: #d89a9a; color: #9c1c1c; }
   .readout { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 3; background: rgba(30, 30, 30, 0.82); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 0.95em; font-weight: 700; pointer-events: none; white-space: nowrap; }
   .zoom { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
   .zoom button { min-width: 44px; min-height: 44px; border: 2px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.92); font-size: 1.3em; font-weight: 700; line-height: 1; padding: 0 8px; }

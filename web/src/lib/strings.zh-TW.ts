@@ -82,6 +82,8 @@ export const strings = {
     kinds: { text: '文字', image: '圖片', shape: '圖案', draw: '手繪' },
     addDraw: '畫畫',
     resumed: '已經接著上次做到的地方。',
+    miniBar: '這個東西的快速操作',
+    forwardShort: '上層',
     multi: '多選',
     multiOn: '多選中',
     multiTitle: (n: number) => `選了 ${n} 個東西`,

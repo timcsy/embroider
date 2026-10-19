@@ -632,9 +632,9 @@ test.describe('畫布放大與平移', () => {
     const cdp = await page.context().newCDPSession(page)
     const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', pts: { x: number; y: number }[]) =>
       cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i + 1 })) })
-    // 兩指在畫布左下角的空白處撐開
-    const mx = s.x + s.width * 0.2
-    const my = s.y + s.height * 0.85
+    // 兩指在畫布左上角的空白處撐開（物件下面是小工具列、右上角是放大縮小，都避開）
+    const mx = s.x + s.width * 0.25
+    const my = s.y + s.height * 0.1
     await touch('touchStart', [{ x: mx - 20, y: my }, { x: mx + 20, y: my }])
     for (let i = 1; i <= 5; i++) {
       const d = 20 + 12 * i
@@ -872,4 +872,46 @@ test.describe('多選', () => {
     await page.mouse.click(a.x + 5, a.y + 5)
     await expect(page.getByTestId('group-note')).toContainText('共 3 個')
   })
+})
+
+test('跟著物件的小工具列：複製、上一層、鎖住、刪掉；拖動時收起來', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('mini-bar')).toBeVisible()
+  // 小工具列在畫布裡面、離物件很近
+  const bar = (await page.getByTestId('mini-bar').boundingBox())!
+  const stage = (await page.getByTestId('stage').boundingBox())!
+  expect(bar.x).toBeGreaterThanOrEqual(stage.x - 1)
+  expect(bar.x + bar.width).toBeLessThanOrEqual(stage.x + stage.width + 1)
+  expect(bar.y + bar.height).toBeLessThanOrEqual(stage.y + stage.height + 1)
+  for (const b of await page.getByTestId('mini-bar').getByRole('button').all()) {
+    expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+
+  await page.getByTestId('mini-duplicate').click()
+  await expect(itemCount(page)).toHaveCount(2)
+  await page.getByTestId('mini-lock').click()
+  await expect(page.getByTestId('lock-note')).toBeVisible()
+  await page.getByTestId('mini-lock').click()
+  await expect(page.getByTestId('lock-note')).toHaveCount(0)
+  await page.getByTestId('mini-forward').click() // 已經在最上面也不會出事
+  await page.getByTestId('mini-remove').click()
+  await expect(itemCount(page)).toHaveCount(1)
+
+  // 拖動時收起來，放開又出現
+  const r = (await rectOf(page, 'item-1'))!
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(r.x + r.width / 2 + 30, r.y + r.height / 2, { steps: 4 })
+  await expect(page.getByTestId('mini-bar')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(page.getByTestId('mini-bar')).toBeVisible()
+})
+
+test('多選與畫畫時不顯示小工具列', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await page.keyboard.press('Control+a')
+  await page.getByTestId('add-draw').click()
+  await expect(page.getByTestId('mini-bar')).toHaveCount(0)
 })

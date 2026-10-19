@@ -540,3 +540,32 @@ export function groupSize(doc: EditorDoc, id: string): number {
   const g = doc.items.find((i) => i.id === id)?.groupId
   return g ? doc.items.filter((o) => o.groupId === g).length : 0
 }
+
+/**
+ * 把一個物件放大 `factor` 倍、多轉 `turn` 度；它屬於某一組時，整組繞著這一組的中心一起這樣變。
+ * 組的中心是各物件位置的外框中心。
+ */
+export function transformGroup(doc: EditorDoc, id: string, o: { factor: number; turn: number }): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  if (!it) return doc
+  const members = it.groupId ? doc.items.filter((m) => m.groupId === it.groupId) : [it]
+  const xs = members.map((m) => m.x)
+  const ys = members.map((m) => m.y)
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  const a = (o.turn * Math.PI) / 180
+  const ids = new Set(members.map((m) => m.id))
+  let next = doc
+  for (const m of doc.items) {
+    if (!ids.has(m.id)) continue
+    const dx = (m.x - cx) * o.factor
+    const dy = (m.y - cy) * o.factor
+    next = updateItem(next, m.id, {
+      scale: m.scale * o.factor,
+      rotation: m.rotation + o.turn,
+      x: round1(cx + dx * Math.cos(a) - dy * Math.sin(a)),
+      y: round1(cy + dx * Math.sin(a) + dy * Math.cos(a)),
+    } as Partial<EditorItem>)
+  }
+  return next
+}

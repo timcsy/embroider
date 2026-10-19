@@ -472,3 +472,43 @@ describe('複製與鏡像不會把新的物件塞進原本那一組', () => {
     expect(mirrorCopy(r, id, 'x').items.find((i) => i.id === mirrorCopy(r, id, 'x').selectedId)?.groupId).toBeNull()
   })
 })
+
+import { transformGroup } from '../src/lib/editor'
+
+describe('整組一起縮放、旋轉', () => {
+  const ring = () => {
+    const d = docWith('rect', { x: 0, y: 0 })
+    return repeatCircle(d, d.items[0].id, { count: 4, radius: 100 })
+  }
+
+  it('放大兩倍：每個物件變大兩倍，離組中心也遠兩倍', () => {
+    const r = ring()
+    const t = transformGroup(r, r.items[0].id, { factor: 2, turn: 0 })
+    t.items.forEach((it, i) => {
+      expect(it.scale).toBeCloseTo(r.items[i].scale * 2)
+      expect(it.x).toBeCloseTo(r.items[i].x * 2)
+      expect(it.y).toBeCloseTo(r.items[i].y * 2)
+    })
+  })
+
+  it('轉 90 度：位置繞組中心轉，每個物件自己也多轉 90 度', () => {
+    const r = ring()
+    const t = transformGroup(r, r.items[0].id, { factor: 1, turn: 90 })
+    // 原本在正上方（0,-100）的，順時針轉 90 度到正右方（100,0）
+    expect(t.items[0].x).toBeCloseTo(100)
+    expect(t.items[0].y).toBeCloseTo(0)
+    expect(t.items[0].rotation).toBeCloseTo(90)
+  })
+
+  it('沒有組的物件：只改自己，位置不變', () => {
+    const d = docWith('rect', { x: 40, y: 10 })
+    const t = transformGroup(d, d.items[0].id, { factor: 2, turn: 30 })
+    expect(t.items[0]).toMatchObject({ x: 40, y: 10, scale: 2, rotation: 30 })
+  })
+
+  it('組裡的物件放大受上下限保護', () => {
+    const r = ring()
+    const t = transformGroup(r, r.items[0].id, { factor: 1000, turn: 0 })
+    expect(t.items.every((i) => i.scale <= 20)).toBe(true)
+  })
+})

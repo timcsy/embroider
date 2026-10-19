@@ -393,3 +393,20 @@ test('做好的一排是一組：拖其中一個整排一起動；可以只動�
   await page.getByTestId('group-break').click()
   await expect(page.getByTestId('group-note')).toHaveCount(0)
 })
+
+test('整組一起轉：按「向右轉」，每一個都多轉十五度', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('slider', { name: '做幾個？' }).fill('4')
+  await page.getByTestId('many-circle').click()
+  await expect(itemCount(page)).toHaveCount(4)
+  await page.getByRole('button', { name: /向右轉/ }).click()
+  await expect(page.locator('[data-testid="item-item-1"]')).toHaveAttribute('transform', /rotate\(15\)/)
+  await expect(page.locator('[data-testid="item-item-2"]')).toHaveAttribute('transform', /rotate\(105\)/)
+  // 只動這一個時，其他不跟著轉
+  await page.getByTestId('group-solo').click()
+  await page.getByRole('button', { name: /向右轉/ }).click()
+  await expect(page.locator('[data-testid="item-item-1"]')).toHaveAttribute('transform', /rotate\(30\)/)
+  await expect(page.locator('[data-testid="item-item-2"]')).toHaveAttribute('transform', /rotate\(105\)/)
+})

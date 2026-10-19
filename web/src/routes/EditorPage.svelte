@@ -18,6 +18,7 @@
     flipItem,
     groupSize,
     moveBy,
+    transformGroup,
     ungroup,
     mirrorCopy,
     repeatCircle,
@@ -186,6 +187,13 @@
     // 只有位置改變、而且這個物件屬於某一組：整組跟著移動同樣的距離
     if (it && it.groupId && !solo && ('x' in p || 'y' in p) && Object.keys(p).every((k) => k === 'x' || k === 'y')) {
       commit(moveBy(doc, id, (p.x ?? it.x) - it.x, (p.y ?? it.y) - it.y, false), key ? `${key}:${id}` : undefined)
+      return
+    }
+    // 縮放、旋轉也是：整組一起（繞著這一組的中心）
+    if (it && it.groupId && !solo && Object.keys(p).length > 0 && Object.keys(p).every((k) => k === 'scale' || k === 'rotation')) {
+      const factor = (p.scale ?? it.scale) / it.scale
+      const turn = (((((p.rotation ?? it.rotation) - it.rotation + 180) % 360) + 360) % 360) - 180
+      commit(transformGroup(doc, id, { factor, turn }), key ? `${key}:${id}` : undefined)
       return
     }
     commit(updateItem(doc, id, p), key ? `${key}:${id}` : undefined)

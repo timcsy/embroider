@@ -104,7 +104,7 @@ export const strings = {
     manyCircle: '圍成一圈',
     manyUnit: '個',
     manyHint: '做好之後每一個都可以單獨移動、換色或刪掉。',
-    groupNote: (n: number) => `這是一組，共 ${n} 個。拖動其中一個，整組會一起動。`,
+    groupNote: (n: number) => `這是一組，共 ${n} 個。移動、放大、轉方向，整組會一起動。`,
     groupSolo: '只動這一個',
     groupTogether: '整組一起動',
     groupBreak: '拆開，各自獨立',

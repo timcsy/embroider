@@ -24,6 +24,14 @@
     startDraw,
     type Brush,
     addFrame,
+    alignItems,
+    distributeItems,
+    groupSelected,
+    matchSize,
+    moveSelected,
+    removeSelected,
+    selectedItems,
+    toggleSelect,
     flipItem,
     groupSize,
     moveBy,
@@ -109,7 +117,7 @@
   let doc = $state.raw<EditorDoc>(emptyDoc(firstHoopId))
   let canUndo = $state(false)
   let canRedo = $state(false)
-  let removedNote = $state<{ removed: Removed; name: string } | null>(null)
+  let removedNote = $state<{ removed: Removed[]; name: string } | null>(null)
   let removedTimer: ReturnType<typeof setTimeout> | undefined
 
   const hoop = $derived(hoops.find((h) => h.id === doc.hoopId) ?? hoops[0])
@@ -198,6 +206,11 @@
 
   function patch(id: string, p: Partial<EditorItem>, key?: string) {
     const it = doc.items.find((i) => i.id === id)
+    // 多選：拖其中一個，選到的一起動
+    if (it && pickedIds.length > 1 && pickedIds.includes(id) && Object.keys(p).length > 0 && Object.keys(p).every((k) => k === 'x' || k === 'y')) {
+      commit(moveSelected(doc, (p.x ?? it.x) - it.x, (p.y ?? it.y) - it.y), key ? `${key}:multi` : undefined)
+      return
+    }
     // 只有位置改變、而且這個物件屬於某一組：整組跟著移動同樣的距離
     if (it && it.groupId && !solo && ('x' in p || 'y' in p) && Object.keys(p).every((k) => k === 'x' || k === 'y')) {
       commit(moveBy(doc, id, (p.x ?? it.x) - it.x, (p.y ?? it.y) - it.y, false), key ? `${key}:${id}` : undefined)
@@ -220,17 +233,45 @@
     const r = removeItem(doc, id)
     if (!r.removed || !it) return
     commit(r.doc)
-    removedNote = { removed: r.removed, name: nameOf(it) }
+    removedNote = { removed: [r.removed], name: nameOf(it) }
     clearTimeout(removedTimer)
     removedTimer = setTimeout(() => (removedNote = null), 10_000)
   }
   function takeBack() {
     if (!removedNote) return
-    commit(restoreRemoved(doc, removedNote.removed))
+    // 照原本的位置由前往後放回去，每一個才會回到自己的層次
+    let next = doc
+    for (const r of [...removedNote.removed].sort((a, b) => a.index - b.index)) next = restoreRemoved(next, r)
+    commit(next)
     removedNote = null
   }
   const select = (id: string | null) => {
     doc = selectItem(doc, id)
+  }
+
+  // ── 多選 ──
+  let multiMode = $state(false)
+  const picked = $derived(selectedItems(doc))
+  const pickedIds = $derived(picked.map((i) => i.id))
+  const toggle = (id: string) => {
+    doc = toggleSelect(doc, id)
+  }
+  function marquee(ids: string[], additive: boolean) {
+    const keep = additive ? pickedIds : []
+    const all = [...new Set([...keep, ...ids])]
+    doc = { ...doc, selectedId: all[0] ?? null, extraIds: all.slice(1) }
+  }
+  const sizeOfItem = (id: string) => {
+    const i = infos.find((x) => x.id === id)
+    return i && i.width > 0 ? { width: i.width, height: i.height } : { width: 300, height: 300 }
+  }
+  function removeMany() {
+    const r = removeSelected(doc)
+    if (r.removed.length === 0) return
+    commit(r.doc)
+    removedNote = { removed: r.removed, name: strings.editor.removedMany(r.removed.length) }
+    clearTimeout(removedTimer)
+    removedTimer = setTimeout(() => (removedNote = null), 10_000)
   }
 
   function nameOf(it: EditorItem): string {
@@ -544,9 +585,14 @@
       e.preventDefault()
       return commit(duplicateItem(doc, selected.id))
     }
+    if (mod && key === 'a' && !drawing && doc.items.length > 0) {
+      e.preventDefault()
+      return marquee(doc.items.map((i) => i.id), false)
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected && !drawing) {
       e.preventDefault()
-      remove(selected.id)
+      if (pickedIds.length > 1) removeMany()
+      else remove(selected.id)
     }
   }
 
@@ -563,6 +609,7 @@
           <button onclick={() => cameraInput?.click()}>{strings.editor.addPhoto}</button>
           <button onclick={() => (shapeMenu = !shapeMenu)} aria-expanded={shapeMenu} data-testid="add-shape">{strings.editor.addShape}</button>
           <button onclick={startDrawing} data-testid="add-draw">{strings.editor.addDraw}</button>
+          <button onclick={() => (multiMode = !multiMode)} aria-pressed={multiMode} class:on={multiMode} data-testid="multi-toggle">{multiMode ? strings.editor.multiOn : strings.editor.multi}</button>
         </div>
         {#if shapeMenu}
           <div class="menu" data-testid="shape-menu">
@@ -625,6 +672,10 @@
           {infos}
           {fit}
           selectedId={doc.selectedId}
+          selectedIds={pickedIds}
+          multi={multiMode}
+          onToggle={toggle}
+          onMarquee={marquee}
           label={strings.text.preview}
           onSelect={select}
           onChange={(id, p, key) => patch(id, p, key.split(':')[0])}
@@ -707,6 +758,25 @@
           <div class="tools">
             <button onclick={undoStroke} disabled={selected?.kind !== 'draw'} data-testid="draw-undo">{strings.editor.drawUndo}</button>
             <button class="primary-ish" onclick={() => (drawing = false)} data-testid="draw-done">{strings.editor.drawDone}</button>
+          </div>
+        </div>
+      {:else if picked.length > 1}
+        <div class="card item-panel" data-testid="multi-panel">
+          <h2>{strings.editor.multiTitle(picked.length)}</h2>
+          <p class="muted">{strings.editor.multiHint}</p>
+          <h3>{strings.editor.alignTitle}</h3>
+          <div class="tools">
+            <button onclick={() => commit(alignItems(doc, 'left', sizeOfItem))} data-testid="align-left">{strings.editor.alignLeft}</button>
+            <button onclick={() => commit(alignItems(doc, 'centerX', sizeOfItem))} data-testid="align-centerX">{strings.editor.alignCenterX}</button>
+            <button onclick={() => commit(alignItems(doc, 'right', sizeOfItem))} data-testid="align-right">{strings.editor.alignRight}</button>
+            <button onclick={() => commit(alignItems(doc, 'top', sizeOfItem))} data-testid="align-top">{strings.editor.alignTop}</button>
+            <button onclick={() => commit(alignItems(doc, 'middleY', sizeOfItem))} data-testid="align-middleY">{strings.editor.alignMiddleY}</button>
+            <button onclick={() => commit(alignItems(doc, 'bottom', sizeOfItem))} data-testid="align-bottom">{strings.editor.alignBottom}</button>
+            <button onclick={() => commit(distributeItems(doc, 'x'))} disabled={picked.length < 3} data-testid="distribute-x">{strings.editor.distributeX}</button>
+            <button onclick={() => commit(distributeItems(doc, 'y'))} disabled={picked.length < 3} data-testid="distribute-y">{strings.editor.distributeY}</button>
+            <button onclick={() => commit(matchSize(doc))} data-testid="match-size">{strings.editor.matchSize}</button>
+            <button onclick={() => commit(groupSelected(doc))} data-testid="group-them">{strings.editor.groupThem}</button>
+            <button class="danger" onclick={removeMany} data-testid="remove-many">{strings.editor.remove}</button>
           </div>
         </div>
       {:else if selected}

@@ -763,3 +763,113 @@ test('鎖住：拖不動、沒有把手、可以改顏色、解開後又能動',
   const r2 = (await rectOf(page, 'item-1'))!
   expect(r2.x - r0.x).toBeGreaterThan(40)
 })
+
+// ── 多選 ──
+async function threeShapes(page: Page) {
+  await open(page)
+  await shape(page, 'rect')
+  await page.getByTestId('duplicate').click()
+  await page.getByTestId('duplicate').click()
+  await expect(itemCount(page)).toHaveCount(3)
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+}
+
+test.describe('多選', () => {
+  test('按住 Shift 點加選，面板顯示「選了 N 個」，再點取消', async ({ page }) => {
+    await threeShapes(page)
+    // 三個東西疊在一起，只有左上角各自露出來：點各自的左上角
+    const corner = async (id: string) => {
+      const r = (await rectOf(page, id))!
+      return { x: r.x + 5, y: r.y + 5 }
+    }
+    const c1 = await corner('item-1')
+    const c2 = await corner('item-2')
+    await page.mouse.click(c1.x, c1.y)
+    await page.keyboard.down('Shift')
+    await page.mouse.click(c2.x, c2.y)
+    await page.keyboard.up('Shift')
+    await expect(page.getByTestId('multi-panel')).toContainText('選了 2 個')
+    await expect(page.getByTestId('handle-resize')).toHaveCount(0)
+    await expect(page.getByTestId('union')).toBeVisible()
+    await page.keyboard.down('Shift')
+    await page.mouse.click(c2.x, c2.y)
+    await page.keyboard.up('Shift')
+    await expect(page.getByTestId('multi-panel')).toHaveCount(0)
+    await expect(page.getByTestId('item-panel')).toBeVisible()
+  })
+
+  test('在空白處拖出框，框到的都選起來；Ctrl+A 全選', async ({ page }) => {
+    await threeShapes(page)
+    const s = (await page.getByTestId('stage').boundingBox())!
+    await page.keyboard.down('Shift')
+    await page.mouse.move(s.x + 6, s.y + 6)
+    await page.mouse.down()
+    await page.mouse.move(s.x + s.width - 6, s.y + s.height - 6, { steps: 6 })
+    await expect(page.getByTestId('marquee')).toBeVisible()
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+    await expect(page.getByTestId('multi-panel')).toContainText('選了 3 個')
+
+    await page.mouse.click(s.x + 6, s.y + s.height - 6)
+    await expect(page.getByTestId('multi-panel')).toHaveCount(0)
+    await page.keyboard.press('Control+a')
+    await expect(page.getByTestId('multi-panel')).toContainText('選了 3 個')
+  })
+
+  test('多選模式（不用按 Shift）：點一下加選', async ({ page }) => {
+    await threeShapes(page)
+    await page.getByTestId('multi-toggle').click()
+    const r1 = (await rectOf(page, 'item-1'))!
+    const r2 = (await rectOf(page, 'item-2'))!
+    // 複製後選到的是最後那個（item-3）；多選模式下再點兩個，一共三個
+    await page.mouse.click(r1.x + 5, r1.y + 5)
+    await page.mouse.click(r2.x + 5, r2.y + 5)
+    await expect(page.getByTestId('multi-panel')).toContainText('選了 3 個')
+    await page.getByTestId('multi-toggle').click()
+    await expect(page.getByTestId('multi-toggle')).toHaveText('多選')
+  })
+
+  test('拖其中一個，選到的一起動', async ({ page }) => {
+    await threeShapes(page)
+    await page.keyboard.press('Control+a')
+    const a = (await rectOf(page, 'item-1'))!
+    const c = (await rectOf(page, 'item-3'))!
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(a.x + a.width / 2 + 25, a.y + a.height / 2, { steps: 5 })
+    await page.mouse.up()
+    const a2 = (await rectOf(page, 'item-1'))!
+    const c2 = (await rectOf(page, 'item-3'))!
+    expect(a2.x - a.x).toBeGreaterThan(15)
+    expect(Math.abs(c2.x - c.x - (a2.x - a.x))).toBeLessThan(2)
+  })
+
+  test('對齊：靠左之後三個的左邊緣一樣；全部刪掉可以一起拿回來', async ({ page }) => {
+    await threeShapes(page)
+    await page.keyboard.press('Control+a')
+    await page.getByTestId('align-left').click()
+    const lefts: number[] = []
+    for (const id of ['item-1', 'item-2', 'item-3']) lefts.push((await rectOf(page, id))!.x)
+    expect(Math.max(...lefts) - Math.min(...lefts)).toBeLessThan(1.5)
+
+    await page.getByTestId('distribute-y').click() // 三個以上才能用，不會出錯
+    await page.getByTestId('match-size').click()
+    await page.getByTestId('remove-many').click()
+    await expect(itemCount(page)).toHaveCount(0)
+    await expect(page.getByTestId('removed-note')).toContainText('3 個')
+    await page.getByTestId('take-back').click()
+    await expect(itemCount(page)).toHaveCount(3)
+  })
+
+  test('綁成一組之後，點其中一個會一起動', async ({ page }) => {
+    await threeShapes(page)
+    await page.keyboard.press('Control+a')
+    await page.getByTestId('group-them').click()
+    const a = (await rectOf(page, 'item-1'))!
+    const s = (await page.getByTestId('stage').boundingBox())!
+    await page.mouse.click(s.x + 6, s.y + s.height - 6) // 點空白處取消選取
+    await expect(page.getByTestId('multi-panel')).toHaveCount(0)
+    await page.mouse.click(a.x + 5, a.y + 5)
+    await expect(page.getByTestId('group-note')).toContainText('共 3 個')
+  })
+})

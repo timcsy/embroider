@@ -6,6 +6,7 @@
   import type { EditorItem } from '../lib/editor'
   import {
     fromCanvas,
+    aabb,
     describeGesture,
     hitBox,
     itemBox,
@@ -36,6 +37,8 @@
     infos,
     fit,
     selectedId,
+    selectedIds = [],
+    multi = false,
     label,
     fill = false,
     drawing = false,
@@ -43,6 +46,8 @@
     onSelect,
     onChange,
     onRemove,
+    onToggle = () => {},
+    onMarquee = () => {},
     onStroke = () => {},
   }: {
     plan: StitchPlan | null
@@ -52,10 +57,16 @@
     /** 為了放進框而整體縮小的倍率 */
     fit: number
     selectedId: string | null
+    /** 多選時，選到的全部（含 selectedId） */
+    selectedIds?: string[]
+    /** 多選模式：點一下加選或取消、拖空白處框選（不用按 Shift 的觸控用） */
+    multi?: boolean
     label: string
     onSelect: (id: string | null) => void
     onChange: (id: string, patch: Partial<EditorItem>, key: string) => void
     onRemove: (id: string) => void
+    onToggle?: (id: string) => void
+    onMarquee?: (ids: string[], additive: boolean) => void
     /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
     /** 寬螢幕（畫布在左、工具在右）：畫布盡量放大；窄螢幕要留位置給下面的工具 */
     fill?: boolean
@@ -142,6 +153,14 @@
   const boxes = $derived(items.map(boxOf))
   const selected = $derived(items.find((i) => i.id === selectedId) ?? null)
   const selectedBox = $derived(selected ? boxOf(selected) : null)
+  const many = $derived(selectedIds.length > 1)
+  // 多選時，把選到的全部框成一個方框
+  const union = $derived.by(() => {
+    if (!many) return null
+    const rs = items.flatMap((it, i) => (selectedIds.includes(it.id) ? [aabb(boxes[i])] : []))
+    if (rs.length === 0) return null
+    return { l: Math.min(...rs.map((r) => r.l)), r: Math.max(...rs.map((r) => r.r)), t: Math.min(...rs.map((r) => r.t)), b: Math.max(...rs.map((r) => r.b)) }
+  })
 
   const px = (b: Box) => ({ x: view.ox + b.cx * view.scale, y: view.oy + b.cy * view.scale })
   const corners = (b: Box) =>
@@ -170,9 +189,11 @@
     | { mode: 'resize'; id: string; scale: number; from: Pt }
     | { mode: 'rotate'; id: string }
     | { mode: 'pan'; start: Pt; zm: Zoom; moved: boolean }
+    | { mode: 'marquee'; start: Pt; additive: boolean }
     | null
 
   let drag = null as Drag
+  let marquee = $state<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const pointers = new Map<number, Pt>()
   // 兩根手指落在空白處：放大縮小與平移整個畫布（落在選到的物件上才是縮放物件）
   let canvasPinch: { zm: Zoom; a: [Pt, Pt] } | null = null
@@ -242,7 +263,7 @@
       drag = { mode: 'pan', start: cp, zm: { ...zm }, moved: true }
       return
     }
-    if (selected && selectedBox && !selected.locked) {
+    if (selected && selectedBox && !selected.locked && !many) {
       const rp = rotatePx(selectedBox)
       if (dist(cp, rp) <= HANDLE_HIT) {
         drag = { mode: 'rotate', id: selected.id }
@@ -259,9 +280,22 @@
     }
     const p = fromCanvas(view, cp.x, cp.y)
     const hit = topHit(boxes, p, PAD_PX / view.scale)
+    const add = multi || e.shiftKey || e.ctrlKey || e.metaKey
+    if (add) {
+      // 加選：點到的加進來或取消；點空白處拖出框，框到的都選起來
+      if (hit >= 0) {
+        onToggle(items[hit].id)
+        drag = null
+      } else {
+        drag = { mode: 'marquee', start: cp, additive: true }
+        marquee = { x0: cp.x, y0: cp.y, x1: cp.x, y1: cp.y }
+      }
+      return
+    }
     if (hit >= 0) {
       const it = items[hit]
-      if (it.id !== selectedId) onSelect(it.id)
+      // 點到的已經在多選裡：保留多選，整批一起拖
+      if (!selectedIds.includes(it.id)) onSelect(it.id)
       if (it.locked) {
         drag = null
         showHint(strings.editor.lockedHint)
@@ -310,6 +344,10 @@
       return
     }
     if (!drag) return
+    if (drag.mode === 'marquee') {
+      marquee = { x0: drag.start.x, y0: drag.start.y, x1: cp.x, y1: cp.y }
+      return
+    }
     if (drag.mode === 'pan') {
       const dx = cp.x - drag.start.x
       const dy = cp.y - drag.start.y
@@ -327,7 +365,9 @@
       const cand = { ...it, x: drag.x + dx, y: drag.y + dy }
       const mine = boxOf(cand)
       const group = it.groupId
-      const others = items.filter((o) => o.id !== it.id && !(group && o.groupId === group)).map(boxOf)
+      const others = items
+        .filter((o) => o.id !== it.id && !selectedIds.includes(o.id) && !(group && o.groupId === group))
+        .map(boxOf)
       const safe = { w: hoop.width - 2 * hoop.margin, h: hoop.height - 2 * hoop.margin }
       const s = snapMove(mine, others, safe, 8 / view.scale)
       guides = { xs: s.xs, ys: s.ys }
@@ -353,6 +393,22 @@
     }
     if (pointers.size === 0) {
       if (drag?.mode === 'pan' && !drag.moved) onSelect(null)
+      if (drag?.mode === 'marquee' && marquee) {
+        const m = marquee
+        const [l, r] = [Math.min(m.x0, m.x1), Math.max(m.x0, m.x1)]
+        const [tp, bt] = [Math.min(m.y0, m.y1), Math.max(m.y0, m.y1)]
+        const small = r - l < 4 && bt - tp < 4
+        const ids = small
+          ? []
+          : items.flatMap((it, i) => {
+              const a = aabb(boxes[i])
+              const [al, ar] = [view.ox + a.l * view.scale, view.ox + a.r * view.scale]
+              const [at, ab] = [view.oy + a.t * view.scale, view.oy + a.b * view.scale]
+              return ar >= l && al <= r && ab >= tp && at <= bt ? [it.id] : []
+            })
+        onMarquee(ids, drag.additive)
+        marquee = null
+      }
       drag = null
       gesture = null
       guides = { xs: [], ys: [] }
@@ -450,7 +506,7 @@
             width={b.w * view.scale}
             height={b.h * view.scale}
             class="box"
-            class:on={it.id === selectedId}
+            class:on={selectedIds.includes(it.id) || it.id === selectedId}
             class:empty={emptyText(it)}
             class:locked={it.locked}
           />
@@ -462,6 +518,12 @@
           {/if}
         </g>
       {/each}
+      {#if marquee}
+        <rect class="marquee" x={Math.min(marquee.x0, marquee.x1)} y={Math.min(marquee.y0, marquee.y1)} width={Math.abs(marquee.x1 - marquee.x0)} height={Math.abs(marquee.y1 - marquee.y0)} data-testid="marquee" />
+      {/if}
+      {#if union}
+        <rect class="union" x={view.ox + union.l * view.scale - 4} y={view.oy + union.t * view.scale - 4} width={(union.r - union.l) * view.scale + 8} height={(union.b - union.t) * view.scale + 8} data-testid="union" />
+      {/if}
       {#if drawing && live.length > 0}
         <polyline
           class="live"
@@ -469,7 +531,7 @@
           style="stroke:{brush.css};stroke-width:{Math.max(1.5, brush.units * fit * view.scale)}px"
         />
       {/if}
-      {#if selected && selectedBox && !drawing && !selected.locked}
+      {#if selected && selectedBox && !drawing && !selected.locked && !many}
         {#each corners(selectedBox) as k (`${k.sx},${k.sy}`)}
           {@const p = cornerPx(selectedBox, k.sx, k.sy)}
           <circle cx={p.x} cy={p.y} r={HANDLE_R} class="handle" data-testid="handle-resize" />
@@ -495,6 +557,8 @@
   .box.on { stroke: #1a73e8; stroke-width: 2; stroke-dasharray: none; fill: rgba(26, 115, 232, 0.06); }
   .box.empty { fill: rgba(255, 255, 255, 0.6); stroke: #1a73e8; stroke-dasharray: 6 4; }
   .box.locked { stroke: #8a8a8a; stroke-dasharray: 2 3; }
+  .marquee { fill: rgba(26, 115, 232, 0.12); stroke: #1a73e8; stroke-width: 1.5; stroke-dasharray: 5 3; pointer-events: none; }
+  .union { fill: none; stroke: #1a73e8; stroke-width: 2; stroke-dasharray: 8 4; pointer-events: none; }
   .lockmark { font-size: 14px; pointer-events: none; }
   .hint { fill: #1a73e8; font-size: 15px; font-weight: 700; pointer-events: none; }
   .handle { fill: #fff; stroke: #1a73e8; stroke-width: 2.5; }

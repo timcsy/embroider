@@ -569,3 +569,149 @@ describe('鎖定', () => {
     expect(moveBy(legacy, legacy.items[0].id, 3, 0, false).items[0].x).toBe(3)
   })
 })
+
+import {
+  alignItems,
+  distributeItems,
+  matchSize,
+  removeSelected,
+  selectedItems,
+  selectItem,
+  toggleSelect,
+} from '../src/lib/editor'
+
+describe('多選', () => {
+  const three = () => {
+    let d = emptyDoc(hoop.id)
+    for (const x of [0, 100, 400]) {
+      d = addShape(d, 'rect')
+      d = updateItem(d, d.selectedId as string, { x, y: x / 2 })
+    }
+    return d
+  }
+  const sizes = new Map<string, { width: number; height: number }>()
+  const sizeOf = (id: string) => sizes.get(id) ?? { width: 100, height: 60 }
+
+  it('加選、再按一下取消；選到的都在 selectedItems 裡', () => {
+    let d = three()
+    const [a, b, c] = d.items.map((i) => i.id)
+    d = { ...d, selectedId: a, extraIds: [] }
+    d = toggleSelect(d, b)
+    d = toggleSelect(d, c)
+    expect(selectedItems(d).map((i) => i.id).sort()).toEqual([a, b, c].sort())
+    d = toggleSelect(d, b)
+    expect(selectedItems(d).map((i) => i.id).sort()).toEqual([a, c].sort())
+  })
+
+  it('一般的單選（selectItem）會清掉加選', () => {
+    let d = three()
+    const [a, b] = d.items.map((i) => i.id)
+    d = { ...d, selectedId: a, extraIds: [b] }
+    d = selectItem(d, b)
+    expect(selectedItems(d).map((i) => i.id)).toEqual([b])
+  })
+
+  it('一起刪掉：每一個都可以拿回來', () => {
+    let d = three()
+    const [a, b] = d.items.map((i) => i.id)
+    d = { ...d, selectedId: a, extraIds: [b] }
+    const r = removeSelected(d)
+    expect(r.doc.items).toHaveLength(1)
+    expect(r.removed).toHaveLength(2)
+    expect(r.doc.selectedId).toBeNull()
+  })
+
+  it('靠左對齊：每個的左邊緣都和最左邊的一樣', () => {
+    let d = three()
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id, d.items[2].id] }
+    const r = alignItems(d, 'left', sizeOf)
+    const lefts = r.items.map((i) => i.x - 50)
+    expect(new Set(lefts).size).toBe(1)
+    expect(lefts[0]).toBe(-50)
+  })
+
+  it('靠右、靠上、靠下、水平置中、垂直置中', () => {
+    let d = three()
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id, d.items[2].id] }
+    expect(new Set(alignItems(d, 'right', sizeOf).items.map((i) => i.x + 50)).size).toBe(1)
+    expect(new Set(alignItems(d, 'top', sizeOf).items.map((i) => i.y - 30)).size).toBe(1)
+    expect(new Set(alignItems(d, 'bottom', sizeOf).items.map((i) => i.y + 30)).size).toBe(1)
+    expect(new Set(alignItems(d, 'centerX', sizeOf).items.map((i) => i.x)).size).toBe(1)
+    expect(new Set(alignItems(d, 'middleY', sizeOf).items.map((i) => i.y)).size).toBe(1)
+  })
+
+  it('只選一個時對齊不做事（至少要兩個）', () => {
+    const d = three()
+    expect(alignItems(d, 'left', sizeOf)).toBe(d)
+  })
+
+  it('等距：左右兩端不動，中間的平均分開', () => {
+    let d = three() // x = 0, 100, 400
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id, d.items[2].id] }
+    const r = distributeItems(d, 'x')
+    const xs = r.items.map((i) => i.x)
+    expect(xs[0]).toBe(0)
+    expect(xs[2]).toBe(400)
+    expect(xs[1]).toBeCloseTo(200)
+  })
+
+  it('等距要三個以上；兩個時不做事', () => {
+    let d = three()
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id] }
+    expect(distributeItems(d, 'x')).toBe(d)
+  })
+
+  it('同樣大小：全部換成第一個選到的大小', () => {
+    let d = three()
+    d = updateItem(d, d.items[0].id, { scale: 2 })
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id, d.items[2].id] }
+    const r = matchSize(d)
+    expect(r.items.map((i) => i.scale)).toEqual([2, 2, 2])
+  })
+
+  it('鎖住的不會被對齊、等距、同樣大小動到', () => {
+    let d = three()
+    d = toggleLock(d, d.items[2].id)
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id, d.items[2].id] }
+    const r = alignItems(d, 'left', sizeOf)
+    expect(r.items[2].x).toBe(400)
+  })
+})
+
+import { groupSelected, moveSelected } from '../src/lib/editor'
+
+describe('多選：綁成一組、一起移動', () => {
+  const two = () => {
+    let d = emptyDoc(hoop.id)
+    for (const x of [0, 100]) {
+      d = addShape(d, 'rect')
+      d = updateItem(d, d.selectedId as string, { x, y: 0 })
+    }
+    return { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id] }
+  }
+
+  it('把選到的綁成一組：之後拖其中一個，整組一起動', () => {
+    const g = groupSelected(two())
+    expect(g.items[0].groupId).toBeTruthy()
+    expect(g.items[0].groupId).toBe(g.items[1].groupId)
+    const moved = moveBy(g, g.items[0].id, 10, 0, false)
+    expect(moved.items.map((i) => i.x)).toEqual([10, 110])
+  })
+
+  it('只選一個時綁成一組不做事', () => {
+    const d = { ...two(), extraIds: [] }
+    expect(groupSelected(d)).toBe(d)
+  })
+
+  it('選到的一起移動同樣的距離，沒選到的不動，鎖住的不動', () => {
+    let d: EditorDoc = two()
+    d = addShape(d, 'circle')
+    const third = d.items[2].id
+    d = { ...d, selectedId: d.items[0].id, extraIds: [d.items[1].id] }
+    const moved = moveSelected(d, 30, -20)
+    expect(moved.items.map((i) => [i.x, i.y])).toEqual([[30, -20], [130, -20], [d.items[2].x, d.items[2].y]])
+    expect(moved.items[2].id).toBe(third)
+    const locked = moveSelected(toggleLock(d, d.items[1].id), 30, 0)
+    expect(locked.items[1].x).toBe(100)
+  })
+})

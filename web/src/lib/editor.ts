@@ -67,6 +67,8 @@ export type EditorItem = TextItem | ImageItem | ShapeItem | DrawItem
 export interface EditorDoc {
   items: EditorItem[]
   selectedId: string | null
+  /** 多選時，除了 selectedId 之外一起選到的 */
+  extraIds?: string[]
   hoopId: string
 }
 
@@ -84,7 +86,7 @@ export const MAX_SCALE = 20
 /** 連續新增或複製的物件，每個往右下錯開這麼多（0.1mm） */
 const STAGGER = 120
 
-export const emptyDoc = (hoopId: string): EditorDoc => ({ items: [], selectedId: null, hoopId })
+export const emptyDoc = (hoopId: string): EditorDoc => ({ items: [], selectedId: null, extraIds: [], hoopId })
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -253,7 +255,7 @@ export function updateItem(doc: EditorDoc, id: string, patch: Partial<EditorItem
 }
 
 export function selectItem(doc: EditorDoc, id: string | null): EditorDoc {
-  return doc.selectedId === id ? doc : { ...doc, selectedId: id }
+  return doc.selectedId === id && !doc.extraIds?.length ? doc : { ...doc, selectedId: id, extraIds: [] }
 }
 
 export function centerItem(doc: EditorDoc, id: string, axis: 'x' | 'y' | 'both'): EditorDoc {
@@ -584,4 +586,115 @@ export function transformGroup(doc: EditorDoc, id: string, o: { factor: number; 
 export function toggleLock(doc: EditorDoc, id: string): EditorDoc {
   const it = doc.items.find((i) => i.id === id)
   return it ? updateItem(doc, id, { locked: !it.locked }) : doc
+}
+
+// ── 多選：對齊、等距、同樣大小 ──
+
+type SizeOf = (id: string) => { width: number; height: number }
+
+/** 目前選到的所有物件（含加選的），照畫面上下層的順序。 */
+export function selectedItems(doc: EditorDoc): EditorItem[] {
+  const ids = new Set([doc.selectedId, ...(doc.extraIds ?? [])])
+  return doc.items.filter((i) => ids.has(i.id))
+}
+
+/** 加選或取消加選。第一個選到的是主要選取。 */
+export function toggleSelect(doc: EditorDoc, id: string): EditorDoc {
+  if (!doc.items.some((i) => i.id === id)) return doc
+  if (doc.selectedId === null) return { ...doc, selectedId: id, extraIds: [] }
+  if (doc.selectedId === id) {
+    const [next, ...rest] = doc.extraIds ?? []
+    return { ...doc, selectedId: next ?? null, extraIds: rest }
+  }
+  const extra = doc.extraIds ?? []
+  return { ...doc, extraIds: extra.includes(id) ? extra.filter((x) => x !== id) : [...extra, id] }
+}
+
+/** 把選到的全部刪掉，回傳每一個被刪掉前的樣子，讓畫面能「拿回來」。 */
+export function removeSelected(doc: EditorDoc): { doc: EditorDoc; removed: Removed[] } {
+  let next = doc
+  const removed: Removed[] = []
+  for (const it of selectedItems(doc)) {
+    const r = removeItem(next, it.id)
+    next = r.doc
+    if (r.removed) removed.push({ item: r.removed.item, index: doc.items.findIndex((i) => i.id === it.id) })
+  }
+  return { doc: { ...next, selectedId: null, extraIds: [] }, removed }
+}
+
+type AlignHow = 'left' | 'right' | 'top' | 'bottom' | 'centerX' | 'middleY'
+
+/** 轉過的外框（設計座標，不含整體縮小）。 */
+function extent(it: EditorItem, size: SizeOf) {
+  const s = size(it.id)
+  const r = (it.rotation * Math.PI) / 180
+  const hw = (Math.abs(s.width * Math.cos(r)) + Math.abs(s.height * Math.sin(r))) / 2
+  const hh = (Math.abs(s.width * Math.sin(r)) + Math.abs(s.height * Math.cos(r))) / 2
+  return { hw, hh }
+}
+
+/** 對齊選到的物件（至少兩個）：靠左、靠右、靠上、靠下、左右置中、上下置中；鎖住的不動。 */
+export function alignItems(doc: EditorDoc, how: AlignHow, size: SizeOf): EditorDoc {
+  const sel = selectedItems(doc)
+  if (sel.length < 2) return doc
+  const box = sel.map((it) => ({ it, ...extent(it, size) }))
+  const left = Math.min(...box.map((b) => b.it.x - b.hw))
+  const right = Math.max(...box.map((b) => b.it.x + b.hw))
+  const top = Math.min(...box.map((b) => b.it.y - b.hh))
+  const bottom = Math.max(...box.map((b) => b.it.y + b.hh))
+  const target = new Map<string, Partial<EditorItem>>()
+  for (const b of box) {
+    if (b.it.locked) continue
+    const p: Partial<EditorItem> =
+      how === 'left' ? { x: left + b.hw }
+      : how === 'right' ? { x: right - b.hw }
+      : how === 'top' ? { y: top + b.hh }
+      : how === 'bottom' ? { y: bottom - b.hh }
+      : how === 'centerX' ? { x: (left + right) / 2 }
+      : { y: (top + bottom) / 2 }
+    target.set(b.it.id, p)
+  }
+  return { ...doc, items: doc.items.map((i) => (target.has(i.id) ? ({ ...i, ...target.get(i.id) } as EditorItem) : i)) }
+}
+
+/** 等距分開（至少三個）：最外面的兩個不動，中間的讓每一格的間隔一樣；鎖住的不動。 */
+export function distributeItems(doc: EditorDoc, axis: 'x' | 'y'): EditorDoc {
+  const sel = selectedItems(doc)
+  if (sel.length < 3) return doc
+  const key = axis
+  const sorted = [...sel].sort((a, b) => a[key] - b[key])
+  const first = sorted[0][key]
+  const last = sorted[sorted.length - 1][key]
+  const step = (last - first) / (sorted.length - 1)
+  const target = new Map<string, number>()
+  sorted.forEach((it, i) => {
+    if (!it.locked) target.set(it.id, first + step * i)
+  })
+  return { ...doc, items: doc.items.map((i) => (target.has(i.id) ? ({ ...i, [key]: target.get(i.id) } as EditorItem) : i)) }
+}
+
+/** 同樣大小：全部換成主要選取那一個的縮放；鎖住的不動。 */
+export function matchSize(doc: EditorDoc): EditorDoc {
+  const sel = selectedItems(doc)
+  const lead = doc.items.find((i) => i.id === doc.selectedId)
+  if (sel.length < 2 || !lead) return doc
+  return { ...doc, items: doc.items.map((i) => (sel.includes(i) && !i.locked ? ({ ...i, scale: lead.scale } as EditorItem) : i)) }
+}
+
+/** 把選到的（兩個以上）綁成一組：之後拖其中一個，整組一起動。 */
+export function groupSelected(doc: EditorDoc): EditorDoc {
+  const sel = selectedItems(doc)
+  if (sel.length < 2) return doc
+  const id = nextGroupId(doc)
+  const ids = new Set(sel.map((i) => i.id))
+  return { ...doc, items: doc.items.map((i) => (ids.has(i.id) ? ({ ...i, groupId: id } as EditorItem) : i)) }
+}
+
+/** 選到的全部移動同樣的距離（鎖住的不動）。 */
+export function moveSelected(doc: EditorDoc, dx: number, dy: number): EditorDoc {
+  const ids = new Set(selectedItems(doc).map((i) => i.id))
+  return {
+    ...doc,
+    items: doc.items.map((o) => (ids.has(o.id) && !o.locked ? ({ ...o, x: o.x + dx, y: o.y + dy } as EditorItem) : o)),
+  }
 }

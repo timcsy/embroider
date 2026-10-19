@@ -339,6 +339,8 @@
   let computedAt = $state.raw<Record<string, { x: number; y: number; scale: number; rotation: number }>>({})
   let computing = $state(false)
   let epoch = 0
+  // 手指正在拖動、縮放、旋轉：畫面用舊針跡變形跟著手指走，先不重新計算；放開之後算一次就好
+  let gesturing = $state(false)
 
   interface Job {
     request: ReturnType<typeof toRequest>['request']
@@ -371,6 +373,7 @@
   $effect(() => {
     const d = doc
     const { request, images } = toRequest(d, hoop, sources)
+    if (gesturing) return
     if (request.items.length === 0) {
       epoch++
       runner.cancel()
@@ -759,9 +762,11 @@
           items={doc.items}
           {infos}
           {fit}
+          thumbs={Object.fromEntries(doc.items.flatMap((i) => { const src = sourceOf(i); return src ? [[i.id, { url: src.previewUrl, aspect: src.width / src.height }]] : [] }))}
           layers={result?.layers ?? []}
           computed={computedAt}
-          stale={computing}
+          stale={computing || gesturing}
+          onGesture={(active) => (gesturing = active)}
           warning={preview?.blocked && !isEmptyHint ? strings.editor.cannotSave : ''}
           selectedId={doc.selectedId}
           selectedIds={pickedIds}

@@ -54,6 +54,7 @@ function paintBase(
 }
 
 const THREAD_MM = 4.2
+const GLOSS_MAX_SEGMENTS = 6000
 
 /** 把同一種線色的一堆線段畫成像繡線：深色底線、本色、細的亮線表現光澤。 */
 function paintColor(ctx: CanvasRenderingContext2D, c: { r: number; g: number; b: number }, segs: [number, number, number, number][], view: View) {
@@ -73,7 +74,8 @@ function paintColor(ctx: CanvasRenderingContext2D, c: { r: number; g: number; b:
   }
   pass(shade(c.r, c.g, c.b, -0.35), thread * 1.25, 0, 0)
   pass(shade(c.r, c.g, c.b, 0), thread * 0.85, 0, 0)
-  pass(shade(c.r, c.g, c.b, 0.35), Math.max(0.6, thread * 0.3), -0.25, -0.25)
+  // 線段非常多的時候，省掉最後那層光澤（肉眼差別很小，但畫一次要多花三分之一的時間）
+  if (segs.length <= GLOSS_MAX_SEGMENTS) pass(shade(c.r, c.g, c.b, 0.35), Math.max(0.6, thread * 0.3), -0.25, -0.25)
 }
 
 export function drawPreview(
@@ -98,6 +100,102 @@ export function drawPreview(
   }
   for (const [ci, list] of byColor) {
     paintColor(ctx, plan.colors[ci] ?? { r: 128, g: 128, b: 128 }, list, view)
+  }
+}
+
+/** 一個物件的針跡先畫在一張獨立的圖上（只畫一次），拖動時直接把這張圖搬、轉、放大縮小，畫面才跟得上手指。 */
+export interface LayerBitmap {
+  canvas: HTMLCanvasElement
+  /** 這張圖左上角在「框座標」的位置（再往外多留 `pad` 像素），畫的時候的比例與解析度（用來判斷要不要重畫） */
+  hx: number
+  hy: number
+  pad: number
+  scale: number
+  dpr: number
+}
+
+const MAX_BITMAP = 4096
+
+/** 把一個物件的針跡畫成一張圖。針跡是空的或太大畫不了就回傳 null。 */
+export function renderLayerBitmap(
+  layer: LayerDraw,
+  view: View,
+  dpr: number,
+  document: Document = globalThis.document,
+): LayerBitmap | null {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const part of layer.parts) {
+    for (const run of part.runs) {
+      for (const [x, y] of run) {
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      }
+    }
+  }
+  if (!Number.isFinite(x0)) return null
+  const pad = 6 * view.scale + 4
+  const left = view.ox + x0 * view.scale - pad
+  const top = view.oy + y0 * view.scale - pad
+  const w = (x1 - x0) * view.scale + 2 * pad
+  const h = (y1 - y0) * view.scale + 2 * pad
+  const pw = Math.ceil(w * dpr)
+  const ph = Math.ceil(h * dpr)
+  if (pw <= 0 || ph <= 0 || pw > MAX_BITMAP || ph > MAX_BITMAP) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = pw
+  canvas.height = ph
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  // 把畫面的原點平移，讓這張圖的左上角對到 (0,0)
+  const local: View = { scale: view.scale, ox: view.ox - left, oy: view.oy - top }
+  for (const part of layer.parts) {
+    const segs: [number, number, number, number][] = []
+    for (const run of part.runs) {
+      for (let i = 1; i < run.length; i++) segs.push([run[i - 1][0], run[i - 1][1], run[i][0], run[i][1]])
+    }
+    paintColor(ctx, part.color, segs, local)
+  }
+  return { canvas, hx: x0, hy: y0, pad, scale: view.scale, dpr }
+}
+
+/**
+ * 用各物件的針跡圖畫：先畫底，再依序把每個物件的圖（可能已經被搬到新的位置、轉了方向、放大縮小）貼上去。
+ * `move` 是以畫布像素表示的變換：以舊中心為中心放大 k、轉 angle，再平移到新中心。
+ */
+export interface BitmapPlacement {
+  bitmap: LayerBitmap
+  from: { x: number; y: number }
+  to: { x: number; y: number }
+  k: number
+  angle: number
+}
+
+export function drawBitmaps(
+  ctx: CanvasRenderingContext2D,
+  placements: BitmapPlacement[],
+  hoop: Hoop,
+  cssW: number,
+  cssH: number,
+  dpr: number,
+  viewOverride?: View,
+): void {
+  const view = paintBase(ctx, hoop, cssW, cssH, dpr, viewOverride)
+  for (const p of placements) {
+    const left = view.ox + p.bitmap.hx * view.scale - p.bitmap.pad
+    const top = view.oy + p.bitmap.hy * view.scale - p.bitmap.pad
+    ctx.save()
+    ctx.translate(p.to.x, p.to.y)
+    ctx.rotate(p.angle)
+    ctx.scale(p.k, p.k)
+    ctx.translate(-p.from.x, -p.from.y)
+    ctx.drawImage(p.bitmap.canvas, left, top, p.bitmap.canvas.width / p.bitmap.dpr, p.bitmap.canvas.height / p.bitmap.dpr)
+    ctx.restore()
   }
 }
 

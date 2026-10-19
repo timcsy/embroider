@@ -1100,3 +1100,64 @@ test('「已經接著上次做到的地方」不會把固定的畫布撐高', as
   const h1 = (await page.locator('.canvas-card').boundingBox())!.height
   expect(Math.abs(h1 - h0)).toBeLessThan(2)
 })
+
+// ── 反應速度 ──
+test('加圖片：針跡還在計算時，原圖就先淡淡地出現在該放的位置', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+  // 縮圖比針跡早出現（針跡要等圖片轉換完）
+  await expect(page.locator('[data-testid^="thumb-"]')).toHaveCount(1, { timeout: 30_000 })
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+  // 針跡出來之後縮圖就收起來
+  await expect(page.locator('[data-testid^="thumb-"]')).toHaveCount(0)
+})
+
+test('拖動物件的過程中不卡住：手指移動時，畫面不會被重新計算拖累', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+  await page.evaluate(() => {
+    ;(window as unknown as { __lt: number[] }).__lt = []
+    new PerformanceObserver((l) => {
+      for (const e of l.getEntries()) (window as unknown as { __lt: number[] }).__lt.push(e.duration)
+    }).observe({ entryTypes: ['longtask'] })
+  })
+  const r = (await rectOf(page, 'item-1'))!
+  const cx = r.x + r.width / 2
+  const cy = r.y + r.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  for (let i = 1; i <= 20; i++) await page.mouse.move(cx + i * 2, cy + i)
+  // 拖的當中不重新計算：沒有出現計算結果造成的長時間卡住（超過 200 毫秒）
+  const long = await page.evaluate(() => (window as unknown as { __lt: number[] }).__lt.filter((d) => d > 200))
+  expect(long).toEqual([])
+  await page.mouse.up()
+  await expect(page.getByTestId('busy')).toHaveCount(0, { timeout: 30_000 })
+})
+
+test('拖動過程中預覽先跟著手指走，放開後才重新計算一次', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  // 計算次數：計算中的進度條出現幾次不好數，改數送給核心的請求次數
+  await page.evaluate(() => {
+    const w = window as unknown as { __posts: number }
+    w.__posts = 0
+    const orig = Worker.prototype.postMessage
+    Worker.prototype.postMessage = function (...args: Parameters<typeof orig>) {
+      const m = args[0] as { method?: string } | undefined
+      if (m?.method === 'buildCompositePreview') w.__posts++
+      return orig.apply(this, args)
+    }
+  })
+  const r = (await rectOf(page, 'item-1'))!
+  const cx = r.x + r.width / 2
+  const cy = r.y + r.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  for (let i = 1; i <= 15; i++) await page.mouse.move(cx + i * 2, cy)
+  const during = await page.evaluate(() => (window as unknown as { __posts: number }).__posts)
+  expect(during).toBe(0)
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __posts: number }).__posts), { timeout: 10_000 }).toBe(1)
+})

@@ -2,7 +2,15 @@
   // 編輯畫面：下層是繡出來的樣子，上層是可以用手指（或滑鼠）操作的外框。
   // 一根手指拖移物件、拉角改大小、拉上方的圓點轉方向；兩根手指同時縮放與旋轉；
   // 滑鼠滾輪縮放、方向鍵微調。
-  import { drawLayers, drawPreview, type LayerDraw } from '../lib/draw'
+  import {
+    drawBitmaps,
+    drawLayers,
+    drawPreview,
+    renderLayerBitmap,
+    type BitmapPlacement,
+    type LayerBitmap,
+    type LayerDraw,
+  } from '../lib/draw'
   import type { EditorItem } from '../lib/editor'
   import {
     fromCanvas,
@@ -42,6 +50,7 @@
     selectedIds = [],
     multi = false,
     label,
+    thumbs = {},
     layers = [],
     computed = {},
     stale = false,
@@ -53,6 +62,7 @@
     onChange,
     onRemove,
     onToggle = () => {},
+    onGesture = () => {},
     onDuplicate = () => {},
     onLock = () => {},
     onLayer = () => {},
@@ -75,11 +85,15 @@
     onChange: (id: string, patch: Partial<EditorItem>, key: string) => void
     onRemove: (id: string) => void
     onToggle?: (id: string) => void
+    /** 手指正在拖動、縮放或旋轉物件（true）／放開了（false）：這段時間畫面用舊針跡變形，先不重新計算 */
+    onGesture?: (active: boolean) => void
     onDuplicate?: (id: string) => void
     onLock?: (id: string) => void
     onLayer?: (id: string) => void
     onMarquee?: (ids: string[], additive: boolean) => void
     /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
+    /** 圖片物件的縮圖（以物件編號為鍵）：還沒算出針跡之前，先把原圖淡淡地放在該放的位置 */
+    thumbs?: Record<string, { url: string; aspect: number }>
     /** 每個物件各自的針跡，算新的結果中途拿來把舊的針跡即時變形 */
     layers?: ItemLayer[]
     /** 這些針跡是在物件什麼狀態下算出來的 */
@@ -136,14 +150,60 @@
       return o && (o.x !== it.x || o.y !== it.y || o.scale !== it.scale || o.rotation !== it.rotation)
     })
     if (layers.length > 0 && (stale || moved)) {
-      const draw: LayerDraw[] = layers.flatMap((l) => {
+      const dprNow = dpr
+      const maps = ensureBitmaps(dprNow)
+      const placements: BitmapPlacement[] = []
+      const slow: LayerDraw[] = []
+      for (const l of layers) {
+        const it = items.find((i) => i.id === l.id)
+        if (!it) continue
+        const old = computed[l.id]
+        const bm = maps.get(l.id)
+        if (!bm) {
+          slow.push({ parts: l.parts, map: layerMap(old, it, fit) })
+          continue
+        }
+        const c0 = { x: view.ox + (old?.x ?? it.x) * fit * view.scale, y: view.oy + (old?.y ?? it.y) * fit * view.scale }
+        const c1 = { x: view.ox + it.x * fit * view.scale, y: view.oy + it.y * fit * view.scale }
+        placements.push({
+          bitmap: bm,
+          from: c0,
+          to: c1,
+          k: old && old.scale > 0 ? it.scale / old.scale : 1,
+          angle: old ? ((it.rotation - old.rotation) * Math.PI) / 180 : 0,
+        })
+      }
+      if (slow.length === 0) drawBitmaps(ctx, placements, hoop, width, height, dpr, view)
+      else drawLayers(ctx, layers.flatMap((l) => {
         const it = items.find((i) => i.id === l.id)
         return it ? [{ parts: l.parts, map: layerMap(computed[l.id], it, fit) }] : []
-      })
-      drawLayers(ctx, draw, hoop, width, height, dpr, view)
+      }), hoop, width, height, dpr, view)
     } else {
       drawPreview(ctx, plan, hoop, width, height, dpr, undefined, view)
     }
+  })
+
+  // 各物件的針跡圖：結果一回來就在空檔先畫好，拖動時只搬圖、不重畫幾千條針
+  let bitmapCache: { layers: ItemLayer[]; scale: number; dpr: number; maps: Map<string, LayerBitmap> } | null = null
+  function ensureBitmaps(dpr: number): Map<string, LayerBitmap> {
+    if (bitmapCache && bitmapCache.layers === layers && bitmapCache.scale === view.scale && bitmapCache.dpr === dpr) {
+      return bitmapCache.maps
+    }
+    const maps = new Map<string, LayerBitmap>()
+    // 用「沒有平移」的畫面畫，位置另外用框座標記著
+    for (const l of layers) {
+      const bm = renderLayerBitmap({ parts: l.parts, map: null }, view, dpr)
+      if (bm) maps.set(l.id, bm)
+    }
+    bitmapCache = { layers, scale: view.scale, dpr, maps }
+    return maps
+  }
+  $effect(() => {
+    void layers
+    void view.scale
+    if (layers.length === 0) return
+    const id = setTimeout(() => ensureBitmaps(window.devicePixelRatio || 1), 0)
+    return () => clearTimeout(id)
   })
 
   const HANDLE_R = 11 // 看得到的把手半徑（像素）
@@ -168,7 +228,9 @@
       const lineH = it.shape === 'line' ? it.lineWidthMm * 10 : it.heightCm * 100
       return { width: it.widthCm * 100, height: Math.max(lineH, 40) }
     }
-    return { width: it.sizeCm * 100, height: it.sizeCm * 100 }
+    const a = thumbs[it.id]?.aspect ?? 1
+    const long = it.sizeCm * 100
+    return a >= 1 ? { width: long, height: long / a } : { width: long * a, height: long }
   }
 
   function boxOf(it: EditorItem): Box {
@@ -316,6 +378,7 @@
       const mid = fromCanvas(view, (a.x + b.x) / 2, (a.y + b.y) / 2)
       if (selected && selectedBox && hitBox(selectedBox, mid, PAD_PX / view.scale)) {
         pinchStart = { id: selected.id, scale: selected.scale, rotation: selected.rotation, a: [a, b] }
+        onGesture(true)
       } else {
         canvasPinch = { zm: { ...zm }, a: [a, b] }
       }
@@ -332,12 +395,14 @@
       if (dist(cp, rp) <= HANDLE_HIT) {
         drag = { mode: 'rotate', id: selected.id }
         gesture = 'rotate'
+        onGesture(true)
         return
       }
       for (const { sx, sy } of corners(selectedBox)) {
         if (dist(cp, cornerPx(selectedBox, sx, sy)) <= HANDLE_HIT) {
           drag = { mode: 'resize', id: selected.id, scale: selected.scale, from: fromCanvas(view, cp.x, cp.y) }
           gesture = 'resize'
+          onGesture(true)
           return
         }
       }
@@ -366,6 +431,7 @@
         return
       }
       drag = { mode: 'move', id: it.id, start: cp, x: it.x, y: it.y }
+      onGesture(true)
       gesture = null // 真的動了才顯示
     } else if (zm.z > 1) {
       // 放大後，拖空白處是平移；只是點一下才取消選取
@@ -456,6 +522,7 @@
       canvasPinch = null
     }
     if (pointers.size === 0) {
+      onGesture(false)
       if (drag?.mode === 'pan' && !drag.moved) onSelect(null)
       if (drag?.mode === 'marquee' && marquee) {
         const m = marquee
@@ -584,6 +651,9 @@
             class:empty={emptyText(it)}
             class:locked={it.locked}
           />
+          {#if it.kind === 'image' && thumbs[it.id] && !layers.some((l) => l.id === it.id)}
+            <image href={thumbs[it.id].url} x={(-b.w * view.scale) / 2} y={(-b.h * view.scale) / 2} width={b.w * view.scale} height={b.h * view.scale} opacity="0.55" preserveAspectRatio="none" class="thumb" data-testid="thumb-{it.id}" />
+          {/if}
           {#if it.locked}
             <text class="lockmark" x={(b.w * view.scale) / 2 - 4} y={(-b.h * view.scale) / 2 + 16} text-anchor="end">🔒</text>
           {/if}
@@ -637,6 +707,7 @@
   .box.locked { stroke: #8a8a8a; stroke-dasharray: 2 3; }
   .marquee { fill: rgba(26, 115, 232, 0.12); stroke: #1a73e8; stroke-width: 1.5; stroke-dasharray: 5 3; pointer-events: none; }
   .union { fill: none; stroke: #1a73e8; stroke-width: 2; stroke-dasharray: 8 4; pointer-events: none; }
+  .thumb { pointer-events: none; }
   .lockmark { font-size: 14px; pointer-events: none; }
   .hint { fill: #1a73e8; font-size: 15px; font-weight: 700; pointer-events: none; }
   .handle { fill: #fff; stroke: #1a73e8; stroke-width: 2.5; }

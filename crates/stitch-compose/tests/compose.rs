@@ -1054,3 +1054,48 @@ fn 混色圖片的一個物件有兩種線色的層() {
         1
     );
 }
+
+#[test]
+#[ignore = "量測用：每次重算花多久（插畫，第二次起圖片轉換有快取）"]
+fn 量測_單張插畫每次重算() {
+    let rgba = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../stitch-image/tests/fixtures/thanks-256.rgba"),
+    )
+    .unwrap();
+    let mk = |scale: f64| Item {
+        id: "i".into(),
+        content: Content::Image {
+            image: 0,
+            width: 256,
+            height: 171,
+            color_count: 8,
+            simplify: 30,
+            size: 1400.0,
+        },
+        x: 0.0,
+        y: 0.0,
+        rotation: 0.0,
+        scale,
+        flip_x: false,
+        flip_y: false,
+    };
+    let _ = build_composite(
+        &fonts(),
+        &req(vec![mk(1.0)], "b70-large"),
+        std::slice::from_ref(&rgba),
+    );
+    for sc in [1.0, 0.9, 0.8] {
+        let t = std::time::Instant::now();
+        let r = build_composite(
+            &fonts(),
+            &req(vec![mk(sc)], "b70-large"),
+            std::slice::from_ref(&rgba),
+        );
+        eprintln!(
+            "scale {sc}: {:?} 針數 {}",
+            t.elapsed(),
+            r.preview.plan.stitches.len()
+        );
+    }
+}

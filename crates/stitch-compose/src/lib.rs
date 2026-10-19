@@ -36,6 +36,9 @@ pub enum Content {
         /// 超過這個寬度（0.1mm）就自動換行；沒有就單行
         #[serde(default)]
         max_width: Option<f64>,
+        /// 繞成弧形：整行字跨過幾度（正的像彩虹往上拱，負的像笑臉往下彎，0 是平的）
+        #[serde(default)]
+        curve: f64,
     },
     Image {
         /// 對應 `build_composite` 的 `images` 第幾張
@@ -96,6 +99,12 @@ pub struct Item {
     /// 使用者縮放倍率
     #[serde(default = "one")]
     pub scale: f64,
+    /// 左右翻轉（在旋轉之前）
+    #[serde(default)]
+    pub flip_x: bool,
+    /// 上下翻轉（在旋轉之前）
+    #[serde(default)]
+    pub flip_y: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -247,6 +256,7 @@ fn build_item(
             height,
             color,
             max_width,
+            curve,
         } => {
             let layout = max_width.map_or(Layout::SingleLine, |w| Layout::Wrap { max_width: w });
             let mut laid = text_to_polygon(fonts, font_id, text, *height, layout)?;
@@ -271,10 +281,15 @@ fn build_item(
                     Some("想要繡這些字的話，請換一個字型試試。"),
                 ));
             }
+            let polygon = if curve.abs() > 0.5 {
+                warp_arc(&laid.polygon, *curve)
+            } else {
+                laid.polygon
+            };
             Ok(Built {
-                size: polygon_size(&laid.polygon),
+                size: polygon_size(&polygon),
                 shapes: vec![ColoredShape {
-                    polygon: laid.polygon,
+                    polygon,
                     color: color.clone(),
                 }],
                 blends: vec![None],
@@ -493,6 +508,67 @@ fn draw_polygon(strokes: &[Vec<[f64; 2]>], width: f64, filled: bool) -> Polygon 
     Polygon::new(rings).normalized()
 }
 
+/// 左右、上下翻轉（繞物件中心）。
+fn flip(p: &Polygon, x: bool, y: bool) -> Polygon {
+    if !x && !y {
+        return p.clone();
+    }
+    let (sx, sy) = (if x { -1.0 } else { 1.0 }, if y { -1.0 } else { 1.0 });
+    Polygon::new(
+        p.rings
+            .iter()
+            .map(|r| r.iter().map(|q| [q[0] * sx, q[1] * sy]).collect())
+            .collect(),
+    )
+    .normalized()
+}
+
+/// 邊太長會在彎的時候變成折線：先把每條邊切成不超過這個長度（0.1mm）。
+const WARP_MAX_EDGE: f64 = 15.0;
+
+/// 把一行字繞成弧形：橫向的位置變成角度、高度變成離圓心的距離，字仍然是立著的。
+/// `sweep_deg` 是整行字跨過的角度；正的往上拱（像彩虹），負的往下彎（像笑臉）。
+fn warp_arc(poly: &Polygon, sweep_deg: f64) -> Polygon {
+    let Some((min, max)) = poly.bounds() else {
+        return poly.clone();
+    };
+    let width = (max[0] - min[0]).max(1.0);
+    let radius = width / sweep_deg.abs().to_radians();
+    let up = sweep_deg > 0.0;
+    let map = |q: [f64; 2]| -> [f64; 2] {
+        let theta = q[0] / radius;
+        // 往下彎時上下顛倒著算，再把結果翻回來
+        let h = if up { q[1] } else { -q[1] };
+        let r = radius - h;
+        let (x, y) = (r * theta.sin(), radius - r * theta.cos());
+        [x, if up { y } else { -y }]
+    };
+    let rings: Vec<Vec<[f64; 2]>> = poly
+        .rings
+        .iter()
+        .map(|ring| {
+            let mut out = Vec::new();
+            for (i, a) in ring.iter().enumerate() {
+                let b = ring[(i + 1) % ring.len()];
+                let n = ((a[0] - b[0]).hypot(a[1] - b[1]) / WARP_MAX_EDGE)
+                    .ceil()
+                    .max(1.0) as usize;
+                for k in 0..n {
+                    let t = k as f64 / n as f64;
+                    out.push(map([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]));
+                }
+            }
+            out
+        })
+        .collect();
+    let warped = Polygon::new(rings);
+    // 重新把外框中心放回原點
+    match warped.bounds() {
+        Some((a, b)) => warped.translate(-(a[0] + b[0]) / 2.0, -(a[1] + b[1]) / 2.0),
+        None => warped,
+    }
+}
+
 /// 單行得縮到比這個倍率還小，就考慮改成分行。
 const WRAP_IF_BELOW: f64 = 0.75;
 /// 分行後的字要比單行大這麼多倍，才值得分行。
@@ -658,9 +734,7 @@ pub fn build_composite(
         }
         notes.extend(built.notes.iter().cloned());
         for (shape, blend) in built.shapes.into_iter().zip(built.blends) {
-            let polygon = shape
-                .polygon
-                .scale(effective)
+            let polygon = flip(&shape.polygon.scale(effective), item.flip_x, item.flip_y)
                 .rotate(item.rotation)
                 .translate(item.x, item.y);
             shapes.push(ColoredShape {

@@ -29,11 +29,14 @@ fn text(id: &str, s: &str, x: f64, y: f64) -> Item {
             height: 150.0,
             color: red(),
             max_width: None,
+            curve: 0.0,
         },
         x,
         y,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     }
 }
 
@@ -52,6 +55,8 @@ fn circle(id: &str, d: f64, x: f64, y: f64) -> Item {
         y,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     }
 }
 
@@ -134,6 +139,8 @@ fn 旋轉九十度寬高對調() {
             y: 0.0,
             rotation: rot,
             scale: 1.0,
+            flip_x: false,
+            flip_y: false,
         };
         it.rotation = rot;
         build_composite(&fonts(), &req(vec![it], "b70-large"), &[])
@@ -209,6 +216,8 @@ fn 空心形狀中間是空的() {
         y: 0.0,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     };
     let r = build_composite(&fonts(), &req(vec![ring], "b70-large"), &[]);
     assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
@@ -245,6 +254,8 @@ fn 每種形狀都能繡() {
             y: 0.0,
             rotation: 0.0,
             scale: 1.0,
+            flip_x: false,
+            flip_y: false,
         };
         let r = build_composite(&fonts(), &req(vec![it], "b70-large"), &[]);
         assert!(
@@ -285,6 +296,8 @@ fn 圖片與文字放在同一個設計() {
         y: -200.0,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     };
     let items = vec![image, text("t", "感恩", 0.0, 650.0)];
     let r = build_composite(&fonts(), &req(items, "b70-large"), &[rgba]);
@@ -315,6 +328,8 @@ fn 圖片壞掉只影響那個物件() {
         y: 0.0,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     };
     let r = build_composite(
         &fonts(),
@@ -346,6 +361,8 @@ fn 同一張圖移動後不必重算_第二次明顯更快() {
         y: 0.0,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     };
     let run = |x: f64| {
         let t = std::time::Instant::now();
@@ -420,6 +437,8 @@ fn draw(strokes: Vec<Vec<[f64; 2]>>, width: f64, filled: bool) -> Item {
         y: 0.0,
         rotation: 0.0,
         scale: 1.0,
+        flip_x: false,
+        flip_y: false,
     }
 }
 
@@ -570,4 +589,177 @@ fn 手繪可以旋轉與縮放() {
     let r = build_composite(&fonts(), &req(vec![it], "b70-large"), &[]);
     let (x0, y0, x1, y1) = bounds(&r);
     assert!((y1 - y0) > 250.0 && (x1 - x0) < 60.0, "{x0} {y0} {x1} {y1}");
+}
+
+fn flipped(mut it: Item, fx: bool, fy: bool) -> Item {
+    it.flip_x = fx;
+    it.flip_y = fy;
+    it
+}
+
+fn left_heavy() -> Item {
+    // 左邊粗、右邊細的長條：用外框的不對稱來看有沒有翻過去
+    Item {
+        id: "lh".into(),
+        content: Content::Draw {
+            strokes: vec![
+                vec![[-300.0, 0.0], [300.0, 0.0]],
+                vec![[-300.0, -150.0], [-300.0, 150.0]],
+            ],
+            width: 30.0,
+            color: red(),
+            filled: false,
+        },
+        x: 0.0,
+        y: 0.0,
+        rotation: 0.0,
+        scale: 1.0,
+        flip_x: false,
+        flip_y: false,
+    }
+}
+
+fn mean_x(r: &stitch_compose::CompositeResult) -> f64 {
+    let pts: Vec<f64> = r
+        .preview
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .map(|s| s.x as f64)
+        .collect();
+    pts.iter().sum::<f64>() / pts.len() as f64
+}
+
+#[test]
+fn 左右翻轉後重心換到另一邊() {
+    let a = build_composite(&fonts(), &req(vec![left_heavy()], "b70-large"), &[]);
+    let b = build_composite(
+        &fonts(),
+        &req(vec![flipped(left_heavy(), true, false)], "b70-large"),
+        &[],
+    );
+    assert!(mean_x(&a) < -10.0, "{}", mean_x(&a));
+    assert!(mean_x(&b) > 10.0, "{}", mean_x(&b));
+}
+
+#[test]
+fn 上下翻轉後重心換到另一邊() {
+    let mean_y = |r: &stitch_compose::CompositeResult| {
+        let pts: Vec<f64> = r
+            .preview
+            .plan
+            .stitches
+            .iter()
+            .filter(|s| s.kind == StitchKind::Stitch)
+            .map(|s| s.y as f64)
+            .collect();
+        pts.iter().sum::<f64>() / pts.len() as f64
+    };
+    let mut it = left_heavy();
+    if let Content::Draw { strokes, .. } = &mut it.content {
+        strokes.push(vec![[250.0, 0.0], [250.0, 200.0]]); // 右邊再往下加一條，上下不對稱
+    }
+    let a = build_composite(&fonts(), &req(vec![it.clone()], "b70-large"), &[]);
+    let b = build_composite(
+        &fonts(),
+        &req(vec![flipped(it, false, true)], "b70-large"),
+        &[],
+    );
+    assert!(
+        mean_y(&a) * mean_y(&b) < 0.0 || (mean_y(&a) - mean_y(&b)).abs() > 20.0,
+        "{} {}",
+        mean_y(&a),
+        mean_y(&b)
+    );
+}
+
+fn curved(text_: &str, curve: f64) -> Item {
+    let mut t = text("c", text_, 0.0, 0.0);
+    if let Content::Text { curve: c, .. } = &mut t.content {
+        *c = curve;
+    }
+    t
+}
+
+#[test]
+fn 字繞成拱形_兩端比中間低() {
+    let flat = build_composite(
+        &fonts(),
+        &req(vec![curved("王小明王小明", 0.0)], "b70-large"),
+        &[],
+    );
+    let arch = build_composite(
+        &fonts(),
+        &req(vec![curved("王小明王小明", 120.0)], "b70-large"),
+        &[],
+    );
+    assert!(arch.preview.blocked.is_none(), "{:?}", arch.preview.blocked);
+    let h = |r: &stitch_compose::CompositeResult| {
+        let (_, y0, _, y1) = bounds(r);
+        y1 - y0
+    };
+    assert!(
+        h(&arch) > h(&flat) * 2.0,
+        "拱形比較高 {} vs {}",
+        h(&arch),
+        h(&flat)
+    );
+    // 左半邊最下面的針，比正中間最下面的針更低
+    let ys: Vec<(i32, i32)> = arch
+        .preview
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .map(|s| (s.x, s.y))
+        .collect();
+    let low = |lo: i32, hi: i32| {
+        ys.iter()
+            .filter(|p| p.0 >= lo && p.0 < hi)
+            .map(|p| p.1)
+            .max()
+            .unwrap()
+    };
+    let (x0, _, x1, _) = bounds(&arch);
+    let (x0, x1) = (x0 as i32, x1 as i32);
+    let w = x1 - x0;
+    assert!(low(x0, x0 + w / 6) > low(x0 + w * 2 / 5, x0 + w * 3 / 5) + 100);
+}
+
+#[test]
+fn 字繞成笑臉形_兩端比中間高() {
+    let smile = build_composite(
+        &fonts(),
+        &req(vec![curved("王小明王小明", -120.0)], "b70-large"),
+        &[],
+    );
+    let ys: Vec<(i32, i32)> = smile
+        .preview
+        .plan
+        .stitches
+        .iter()
+        .filter(|s| s.kind == StitchKind::Stitch)
+        .map(|s| (s.x, s.y))
+        .collect();
+    let (x0, _, x1, _) = bounds(&smile);
+    let (x0, x1) = (x0 as i32, x1 as i32);
+    let w = x1 - x0;
+    let high = |lo: i32, hi: i32| {
+        ys.iter()
+            .filter(|p| p.0 >= lo && p.0 < hi)
+            .map(|p| p.1)
+            .min()
+            .unwrap()
+    };
+    assert!(high(x0, x0 + w / 6) < high(x0 + w * 2 / 5, x0 + w * 3 / 5) - 100);
+}
+
+#[test]
+fn 弧形文字也能旋轉與放進框() {
+    let mut it = curved("王小明王小明", 90.0);
+    it.rotation = 30.0;
+    let r = build_composite(&fonts(), &req(vec![it], "b70-medium"), &[]);
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    assert!(validate_plan(&r.preview.plan, &hoop("b70-medium")).is_ok());
 }

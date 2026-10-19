@@ -76,6 +76,8 @@ fn 多物件介面可以呼叫且結果合法() {
             y: 0.0,
             rotation: 0.0,
             scale: 1.0,
+            flip_x: false,
+            flip_y: false,
         }],
         hoop: hoop.clone(),
         settings: Default::default(),

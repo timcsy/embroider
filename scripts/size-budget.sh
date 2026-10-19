@@ -9,7 +9,8 @@ FONT_MAX=$((4 * 1024 * 1024))      # 單一字型：4MB
 FONTS_TOTAL_MAX=$((12 * 1024 * 1024)) # 字型總量：12MB
 JS_MAX=$((300 * 1024))             # 前端程式（未壓縮）：300KB
 
-size() { stat -f %z "$1" 2>/dev/null || stat -c %s "$1"; }
+# GNU 的 stat 用 -c，BSD（macOS）用 -f；GNU 的 -f 是檔案系統資訊（會印出別的東西卻成功），所以要先試 -c
+size() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
 fail=0
 check() { # 名稱 實際 上限
   local pct=$(( $2 * 100 / $3 ))

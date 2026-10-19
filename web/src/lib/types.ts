@@ -119,6 +119,7 @@ export type ShapeKind = 'circle' | 'rect' | 'heart' | 'star' | 'line'
 /** 送進核心的物件。位置是物件中心離框中心的偏移（0.1mm）。 */
 export type CompositeContent =
   | { kind: 'text'; text: string; font_id: string; height: number; color: ThreadColor; max_width?: number | null }
+  | { kind: 'draw'; strokes: [number, number][][]; width: number; color: ThreadColor; filled: boolean }
   | { kind: 'image'; image: number; width: number; height: number; color_count: number; simplify: number; size: number }
   | {
       kind: 'shape'

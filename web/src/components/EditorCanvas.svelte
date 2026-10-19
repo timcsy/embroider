@@ -29,9 +29,12 @@
     fit,
     selectedId,
     label,
+    drawing = false,
+    brush = { css: '#b3282d', units: 25 },
     onSelect,
     onChange,
     onRemove,
+    onStroke = () => {},
   }: {
     plan: StitchPlan | null
     hoop: Hoop
@@ -44,6 +47,10 @@
     onSelect: (id: string | null) => void
     onChange: (id: string, patch: Partial<EditorItem>, key: string) => void
     onRemove: (id: string) => void
+    /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
+    drawing?: boolean
+    brush?: { css: string; units: number }
+    onStroke?: (points: Pt[]) => void
   } = $props()
 
   let area = $state<HTMLDivElement>()
@@ -75,6 +82,16 @@
   /** 沒有核心回報的大小時（還沒算好、物件有問題）先用輸入的大小估一個。 */
   function fallbackSize(it: EditorItem): { width: number; height: number } {
     if (it.kind === 'text') return { width: Math.max(300, it.heightCm * 100 * 3), height: it.heightCm * 100 }
+    if (it.kind === 'draw') {
+      const all = it.strokes.flat()
+      const xs = all.map((p) => p[0])
+      const ys = all.map((p) => p[1])
+      const pad = it.widthMm * 10
+      return {
+        width: Math.max(...xs) - Math.min(...xs) + pad,
+        height: Math.max(...ys) - Math.min(...ys) + pad,
+      }
+    }
     if (it.kind === 'shape') {
       const lineH = it.shape === 'line' ? it.lineWidthMm * 10 : it.heightCm * 100
       return { width: it.widthCm * 100, height: Math.max(lineH, 40) }
@@ -138,7 +155,29 @@
   }
   const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
 
+  // 畫畫模式：正在畫的這一筆（畫布像素）
+  let live = $state<Pt[]>([])
+  const MIN_STEP_PX = 2
+
+  function strokeDown(e: PointerEvent) {
+    ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+    live = [local(e)]
+  }
+  function strokeMove(e: PointerEvent) {
+    if (live.length === 0) return
+    const p = local(e)
+    const last = live[live.length - 1]
+    if (Math.hypot(p.x - last.x, p.y - last.y) >= MIN_STEP_PX) live = [...live, p]
+  }
+  function strokeUp() {
+    if (live.length === 0) return
+    const pts = live.map((p) => fromCanvas(view, p.x, p.y))
+    live = []
+    onStroke(pts)
+  }
+
   function onDown(e: PointerEvent) {
+    if (drawing) return strokeDown(e)
     const cp = local(e)
     ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
     pointers.set(e.pointerId, cp)
@@ -176,6 +215,7 @@
   }
 
   function onMove(e: PointerEvent) {
+    if (drawing) return strokeMove(e)
     if (!pointers.has(e.pointerId)) return
     const cp = local(e)
     pointers.set(e.pointerId, cp)
@@ -204,6 +244,7 @@
   }
 
   function onUp(e: PointerEvent) {
+    if (drawing) return strokeUp()
     pointers.delete(e.pointerId)
     if (pointers.size < 2) pinchStart = null
     if (pointers.size === 0) {
@@ -267,6 +308,7 @@
       onpointermove={onMove}
       onpointerup={onUp}
       onpointercancel={onUp}
+      class:drawing
       onkeydown={onKey}
       use:wheel
     >
@@ -294,7 +336,14 @@
           {/if}
         </g>
       {/each}
-      {#if selected && selectedBox}
+      {#if drawing && live.length > 0}
+        <polyline
+          class="live"
+          points={live.map((p) => `${p.x},${p.y}`).join(' ')}
+          style="stroke:{brush.css};stroke-width:{Math.max(1.5, brush.units * fit * view.scale)}px"
+        />
+      {/if}
+      {#if selected && selectedBox && !drawing}
         {#each corners(selectedBox) as k (`${k.sx},${k.sy}`)}
           {@const p = cornerPx(selectedBox, k.sx, k.sy)}
           <circle cx={p.x} cy={p.y} r={HANDLE_R} class="handle" data-testid="handle-resize" />
@@ -324,5 +373,7 @@
   .handle.rot { fill: #1a73e8; }
   .stem { stroke: #1a73e8; stroke-width: 1.5; }
   .center { fill: #1a73e8; }
+  .overlay.drawing { cursor: crosshair; }
+  .live { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
   .guide { stroke: #e0457b; stroke-width: 1; stroke-dasharray: 5 4; }
 </style>

@@ -10,6 +10,10 @@
   import type { CoreClient } from '../lib/coreClient'
   import { listRecent, removeRecent, saveRecent, type SavedDesign } from '../lib/designs'
   import {
+    appendStroke,
+    removeLastStroke,
+    startDraw,
+    type Brush,
     addImage,
     addShape,
     addText,
@@ -193,11 +197,13 @@
   function nameOf(it: EditorItem): string {
     if (it.kind === 'text') return it.text.trim() || strings.editor.kinds.text
     if (it.kind === 'image') return stemOf(sourceOf(it)?.name ?? '') || strings.editor.kinds.image
+    if (it.kind === 'draw') return strings.editor.kinds.draw
     return strings.editor.shapes[it.shape]
   }
 
   /** 「大小」滑桿顯示與編輯的是實際公分數：基準大小 × 縮放。 */
   function baseCm(it: EditorItem): number {
+    if (it.kind === 'draw') return 1
     return it.kind === 'text' ? it.heightCm : it.kind === 'image' ? it.sizeCm : Math.max(it.widthCm, it.heightCm)
   }
   const sizeRange = (it: EditorItem) =>
@@ -389,6 +395,33 @@
     document.documentElement.style.setProperty('--stage-h', `${stageHeight + 24}px`)
   })
 
+  // ── 畫畫 ──
+  let drawing = $state(false)
+  let brush = $state<Brush>({ widthMm: 2.5, colorIdx: 0, filled: false })
+  const brushCss = $derived(`rgb(${THREADS[brush.colorIdx].r},${THREADS[brush.colorIdx].g},${THREADS[brush.colorIdx].b})`)
+
+  function startDrawing() {
+    if (selected?.kind === 'draw') {
+      brush = { widthMm: selected.widthMm, colorIdx: selected.colorIdx, filled: selected.filled }
+    } else {
+      doc = selectItem(doc, null)
+    }
+    drawing = true
+    shapeMenu = false
+  }
+  function onStroke(points: { x: number; y: number }[]) {
+    if (points.length === 0) return
+    const target = selected?.kind === 'draw' ? selected : null
+    commit(target ? appendStroke(doc, target.id, points, fit) : startDraw(doc, points, brush, fit))
+  }
+  function setBrush(p: Partial<Brush>, key?: string) {
+    brush = { ...brush, ...p }
+    if (selected?.kind === 'draw') patch(selected.id, p as Partial<EditorItem>, key)
+  }
+  function undoStroke() {
+    if (selected?.kind === 'draw') commit(removeLastStroke(doc, selected.id))
+  }
+
   const shapeKinds: ShapeKind[] = ['circle', 'rect', 'heart', 'star', 'line']
   let shapeMenu = $state(false)
 </script>
@@ -419,6 +452,9 @@
           onSelect={select}
           onChange={(id, p, key) => patch(id, p, key.split(':')[0])}
           onRemove={remove}
+          {drawing}
+          brush={{ css: brushCss, units: brush.widthMm * 10 }}
+          {onStroke}
         />
         <div class="status">
           {#if doc.items.length === 0}
@@ -460,6 +496,7 @@
           <button onclick={() => pickImage()} data-testid="add-image">{strings.editor.addImage}</button>
           <button onclick={() => cameraInput?.click()}>{strings.editor.addPhoto}</button>
           <button onclick={() => (shapeMenu = !shapeMenu)} aria-expanded={shapeMenu} data-testid="add-shape">{strings.editor.addShape}</button>
+          <button onclick={startDrawing} data-testid="add-draw">{strings.editor.addDraw}</button>
         </div>
         {#if shapeMenu}
           <div class="chips shapes" role="group" aria-label={strings.editor.addShape}>
@@ -477,7 +514,47 @@
         {#if imageProblem}<Notice message={imageProblem} tone="warn" />{/if}
       </div>
 
-      {#if selected}
+      {#if drawing}
+        <div class="card item-panel" data-testid="draw-panel">
+          <h2>{strings.editor.drawTitle}</h2>
+          <p class="muted">{strings.editor.drawHint}</p>
+          <h3>{strings.text.color}</h3>
+          <div class="swatches" role="radiogroup" aria-label={strings.text.color}>
+            {#each THREADS as t, i (t.name)}
+              <button
+                role="radio"
+                aria-checked={brush.colorIdx === i}
+                aria-label={t.name}
+                class:on={brush.colorIdx === i}
+                style="--c: rgb({t.r},{t.g},{t.b})"
+                onclick={() => setBrush({ colorIdx: i })}
+              ><span class="dot"></span><span class="name">{t.name}</span></button>
+            {/each}
+          </div>
+          <h3>{strings.editor.drawWidth}</h3>
+          <div class="size">
+            <input
+              type="range"
+              min="1"
+              max="8"
+              step="0.5"
+              value={brush.widthMm}
+              aria-label={strings.editor.drawWidth}
+              oninput={(e) => setBrush({ widthMm: Number(e.currentTarget.value) }, 'line')}
+            />
+            <output>{brush.widthMm.toFixed(1)} {strings.editor.lineWidthUnit}</output>
+          </div>
+          <h3>{strings.editor.drawFill}</h3>
+          <div class="chips" role="radiogroup" aria-label={strings.editor.drawFill}>
+            <button role="radio" aria-checked={!brush.filled} class:on={!brush.filled} onclick={() => setBrush({ filled: false })}>{strings.editor.hollow}</button>
+            <button role="radio" aria-checked={brush.filled} class:on={brush.filled} onclick={() => setBrush({ filled: true })}>{strings.editor.filled}</button>
+          </div>
+          <div class="tools">
+            <button onclick={undoStroke} disabled={selected?.kind !== 'draw'} data-testid="draw-undo">{strings.editor.drawUndo}</button>
+            <button class="primary-ish" onclick={() => (drawing = false)} data-testid="draw-done">{strings.editor.drawDone}</button>
+          </div>
+        </div>
+      {:else if selected}
         {@const it = selected}
         <div class="card item-panel" data-testid="item-panel" data-kind={it.kind}>
           <h2>{strings.editor.kinds[it.kind]}</h2>
@@ -583,6 +660,30 @@
             {/if}
           {/if}
 
+          {#if it.kind === 'draw'}
+            <div class="pick">
+              <button class="secondary" onclick={startDrawing} data-testid="draw-more">{strings.editor.drawMore}</button>
+            </div>
+            <h3>{strings.editor.drawWidth}</h3>
+            <div class="size">
+              <input
+                type="range"
+                min="1"
+                max="8"
+                step="0.5"
+                value={it.widthMm}
+                aria-label={strings.editor.drawWidth}
+                oninput={(e) => patch(it.id, { widthMm: Number(e.currentTarget.value) }, 'line')}
+              />
+              <output>{it.widthMm.toFixed(1)} {strings.editor.lineWidthUnit}</output>
+            </div>
+            <h3>{strings.editor.drawFill}</h3>
+            <div class="chips" role="radiogroup" aria-label={strings.editor.drawFill}>
+              <button role="radio" aria-checked={!it.filled} class:on={!it.filled} onclick={() => patch(it.id, { filled: false })}>{strings.editor.hollow}</button>
+              <button role="radio" aria-checked={it.filled} class:on={it.filled} onclick={() => patch(it.id, { filled: true })}>{strings.editor.filled}</button>
+            </div>
+          {/if}
+
           {#if it.kind !== 'image'}
             <h3>{strings.text.color}</h3>
             <div class="swatches" role="radiogroup" aria-label={strings.text.color}>
@@ -599,7 +700,7 @@
             </div>
           {/if}
 
-          {#if true}
+          {#if it.kind !== 'draw'}
             {@const range = sizeRange(it)}
             {@const base = baseCm(it)}
             <h3>{it.kind === 'text' ? strings.text.size : it.kind === 'image' ? strings.image.size : strings.editor.size}</h3>
@@ -729,6 +830,7 @@
   .tools button:disabled { opacity: 0.4; }
   .tools .danger { border-color: #d89a9a; color: #9c1c1c; }
   .toast { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff7e0; border: 2px solid #e8c25a; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+  .tools .primary-ish { border-color: var(--accent); background: #fdecec; }
   .toast button { min-height: 48px; padding: 0 16px; border: 2px solid var(--accent); border-radius: 10px; background: #fff; font-weight: 700; }
   .status { min-height: 1.5em; }
   .hint { text-align: center; }

@@ -43,7 +43,17 @@ export interface ShapeItem extends Base {
   lineWidthMm: number
 }
 
-export type EditorItem = TextItem | ImageItem | ShapeItem
+/** 手繪：好幾筆線，每一筆是相對於物件中心的點（0.1mm，縮放為 1 時）。 */
+export interface DrawItem extends Base {
+  kind: 'draw'
+  strokes: [number, number][][]
+  widthMm: number
+  colorIdx: number
+  /** 封起來的圖形要不要把中間填滿 */
+  filled: boolean
+}
+
+export type EditorItem = TextItem | ImageItem | ShapeItem | DrawItem
 
 export interface EditorDoc {
   items: EditorItem[]
@@ -127,6 +137,79 @@ export function addImage(doc: EditorDoc, image: ImageSource, hoop: Hoop, colors 
     sizeCm: fitImageSizeCm(hoop, image.width, image.height),
     crop: null,
   }))
+}
+
+export interface Brush {
+  widthMm: number
+  colorIdx: number
+  filled: boolean
+}
+
+interface P {
+  x: number
+  y: number
+}
+
+const round1 = (v: number) => Math.round(v * 10) / 10
+
+/** 畫面上（已整體縮小 fit 倍）的點，換成物件自己的座標。 */
+function toLocal(it: Base, p: P, fit: number): [number, number] {
+  const dx = p.x / fit - it.x
+  const dy = p.y / fit - it.y
+  const r = (-it.rotation * Math.PI) / 180
+  const lx = (dx * Math.cos(r) - dy * Math.sin(r)) / it.scale
+  const ly = (dx * Math.sin(r) + dy * Math.cos(r)) / it.scale
+  return [lx, ly]
+}
+
+/** 第一筆：開一個手繪物件，中心放在這一筆的外框正中間。`points` 是畫面上的座標（0.1mm，已套用整體縮小）。 */
+export function startDraw(doc: EditorDoc, points: P[], brush: Brush, fit: number): EditorDoc {
+  const pts = points.map((p) => [p.x / fit, p.y / fit] as [number, number])
+  const xs = pts.map((p) => p[0])
+  const ys = pts.map((p) => p[1])
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  return put(doc, (id) => ({
+    id,
+    x: round1(cx),
+    y: round1(cy),
+    rotation: 0,
+    scale: 1,
+    kind: 'draw',
+    strokes: [pts.map(([x, y]) => [round1(x - round1(cx)), round1(y - round1(cy))] as [number, number])],
+    ...brush,
+  }))
+}
+
+/** 再畫一筆。新的點換成物件自己的座標，並把物件的中心重新放回全部筆畫的正中間（畫面上的位置不變）。 */
+export function appendStroke(doc: EditorDoc, id: string, points: P[], fit: number): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  if (!it || it.kind !== 'draw' || points.length === 0) return doc
+  const strokes = [...it.strokes, points.map((p) => toLocal(it, p, fit))]
+  return recenterDraw(doc, it, strokes)
+}
+
+export function removeLastStroke(doc: EditorDoc, id: string): EditorDoc {
+  const it = doc.items.find((i) => i.id === id)
+  if (!it || it.kind !== 'draw') return doc
+  const strokes = it.strokes.slice(0, -1)
+  if (strokes.length === 0) return removeItem(doc, id).doc
+  return recenterDraw(doc, it, strokes)
+}
+
+function recenterDraw(doc: EditorDoc, it: DrawItem, strokes: [number, number][][]): EditorDoc {
+  const all = strokes.flat()
+  const xs = all.map((p) => p[0])
+  const ys = all.map((p) => p[1])
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  const r = (it.rotation * Math.PI) / 180
+  const [sx, sy] = [cx * it.scale, cy * it.scale]
+  return updateItem(doc, it.id, {
+    x: round1(it.x + sx * Math.cos(r) - sy * Math.sin(r)),
+    y: round1(it.y + sx * Math.sin(r) + sy * Math.cos(r)),
+    strokes: strokes.map((s) => s.map(([x, y]) => [round1(x - cx), round1(y - cy)] as [number, number])),
+  } as Partial<EditorItem>)
 }
 
 export function updateItem(doc: EditorDoc, id: string, patch: Partial<EditorItem>): EditorDoc {
@@ -229,6 +312,15 @@ export function toRequest(
         font_id: it.fontId,
         height: cm(it.heightCm),
         color: THREADS[it.colorIdx] ?? THREADS[0],
+      })
+    } else if (it.kind === 'draw') {
+      out.push({
+        ...placement,
+        kind: 'draw',
+        strokes: it.strokes,
+        width: Math.round(it.widthMm * 10),
+        color: THREADS[it.colorIdx] ?? THREADS[0],
+        filled: it.filled,
       })
     } else if (it.kind === 'shape') {
       out.push({

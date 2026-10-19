@@ -191,3 +191,93 @@ for (const s of screens) {
     expect(stage.x + stage.width).toBeLessThanOrEqual(s.width + 1)
   })
 }
+
+// ── 手繪 ──
+async function drawPath(page: Page, pts: [number, number][]) {
+  const stage = await box(page, 'stage')
+  const at = ([fx, fy]: [number, number]) => ({ x: stage.x + stage.width * fx, y: stage.y + stage.height * fy })
+  const first = at(pts[0])
+  await page.mouse.move(first.x, first.y)
+  await page.mouse.down()
+  for (const p of pts.slice(1)) {
+    const q = at(p)
+    await page.mouse.move(q.x, q.y, { steps: 3 })
+  }
+  await page.mouse.up()
+}
+
+test('畫一筆：變成一個手繪物件，畫好了可以存', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('add-draw').click()
+  await expect(page.getByTestId('draw-panel')).toBeVisible()
+  await drawPath(page, [[0.3, 0.4], [0.5, 0.5], [0.7, 0.4]])
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(1)
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('draw-done').click()
+  await expect(page.getByTestId('draw-panel')).toHaveCount(0)
+  await expect(page.getByTestId('item-panel')).toHaveAttribute('data-kind', 'draw')
+  await expect(page.getByTestId('save')).toBeEnabled()
+})
+
+test('連畫兩筆算同一個物件；擦掉上一筆、全擦掉就沒有物件', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('add-draw').click()
+  await drawPath(page, [[0.3, 0.3], [0.7, 0.3]])
+  await drawPath(page, [[0.3, 0.6], [0.7, 0.6]])
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(1)
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('draw-undo').click()
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(1)
+  await page.getByTestId('draw-undo').click()
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(0)
+})
+
+test('畫畫時不會誤拖到別的東西', async ({ page }) => {
+  await open(page)
+  await shape(page, 'rect')
+  const before = (await rectOf(page, 'item-1'))!
+  await page.getByTestId('add-draw').click()
+  const cx = (before.x + before.width / 2) / 1
+  const cy = before.y + before.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 40, cy + 20, { steps: 4 })
+  await page.mouse.up()
+  const after = (await rectOf(page, 'item-1'))!
+  expect(Math.abs(after.x - before.x)).toBeLessThan(2)
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(2)
+})
+
+test('畫一個圈：選「填滿」中間才有繡線', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('add-draw').click()
+  const ring: [number, number][] = Array.from({ length: 41 }, (_, i) => {
+    const a = (Math.PI * 2 * i) / 40
+    return [0.5 + 0.3 * Math.cos(a), 0.4 + 0.2 * Math.sin(a)] as [number, number]
+  })
+  await drawPath(page, ring)
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  const centerRed = () =>
+    page.getByTestId('preview').evaluate((c: HTMLCanvasElement) => {
+      const ctx = c.getContext('2d')!
+      const x = Math.round(c.width * 0.5)
+      const y = Math.round(c.height * 0.4)
+      const d = ctx.getImageData(x - 6, y - 6, 12, 12).data
+      let red = 0
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] < 100 && d[i + 2] < 100) red++
+      return red
+    })
+  expect(await centerRed()).toBe(0)
+  await page.getByRole('radio', { name: '填滿' }).or(page.getByRole('radio', { name: '實心' })).first().click()
+  await expect.poll(centerRed, { timeout: 30_000 }).toBeGreaterThan(20)
+})
+
+test('平板上也能畫畫', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  await page.getByTestId('add-draw').click()
+  await drawPath(page, [[0.3, 0.4], [0.6, 0.5], [0.4, 0.7]])
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('draw-done').click()
+  await expect(page.getByTestId('save')).toBeEnabled()
+})

@@ -219,3 +219,76 @@ describe('舊版存下來的設計', () => {
     expect(fromLegacy({ mode: 'other' })).toBeNull()
   })
 })
+
+import { appendStroke, removeLastStroke, startDraw, type DrawItem } from '../src/lib/editor'
+
+const brush = { widthMm: 2.5, colorIdx: 3, filled: false }
+const world = (it: DrawItem, p: [number, number]): [number, number] => {
+  const r = (it.rotation * Math.PI) / 180
+  const [x, y] = [p[0] * it.scale, p[1] * it.scale]
+  return [it.x + x * Math.cos(r) - y * Math.sin(r), it.y + x * Math.sin(r) + y * Math.cos(r)]
+}
+
+describe('手繪', () => {
+  it('第一筆：物件的中心放在這一筆的正中間，點是相對於中心的', () => {
+    const d = startDraw(emptyDoc(hoop.id), [{ x: 100, y: 200 }, { x: 300, y: 200 }], brush, 1)
+    const it = d.items[0] as DrawItem
+    expect(it.kind).toBe('draw')
+    expect([it.x, it.y]).toEqual([200, 200])
+    expect(it.strokes[0]).toEqual([[-100, 0], [100, 0]])
+    expect(it).toMatchObject({ widthMm: 2.5, colorIdx: 3, filled: false })
+    expect(d.selectedId).toBe(it.id)
+  })
+
+  it('畫面上整體縮小過（fit<1）：位置要換回設計座標', () => {
+    const d = startDraw(emptyDoc(hoop.id), [{ x: 50, y: 50 }, { x: 150, y: 50 }], brush, 0.5)
+    const it = d.items[0] as DrawItem
+    expect([it.x, it.y]).toEqual([200, 100])
+    expect(it.strokes[0]).toEqual([[-100, 0], [100, 0]])
+  })
+
+  it('再畫一筆：所有點在畫面上的位置都不變（即使物件轉過、縮放過）', () => {
+    let d = startDraw(emptyDoc(hoop.id), [{ x: 0, y: 0 }, { x: 100, y: 0 }], brush, 1)
+    const id = d.items[0].id
+    d = updateItem(d, id, { rotation: 30, scale: 1.5 })
+    const before = d.items[0] as DrawItem
+    const firstWorld = before.strokes[0].map((p) => world(before, p))
+    // 畫面上的新一筆（已套用物件的位置與旋轉、縮放）
+    const input = [{ x: 400, y: -100 }, { x: 500, y: 50 }]
+    d = appendStroke(d, id, input, 1)
+    const it = d.items[0] as DrawItem
+    expect(it.strokes).toHaveLength(2)
+    it.strokes[1].forEach((p, i) => {
+      const w = world(it, p)
+      expect(w[0]).toBeCloseTo(input[i].x, 0)
+      expect(w[1]).toBeCloseTo(input[i].y, 0)
+    })
+    it.strokes[0].forEach((p, i) => {
+      const w = world(it, p)
+      expect(w[0]).toBeCloseTo(firstWorld[i][0], 0)
+      expect(w[1]).toBeCloseTo(firstWorld[i][1], 0)
+    })
+  })
+
+  it('刪掉最後一筆；沒有筆畫了就整個物件拿掉', () => {
+    let d = startDraw(emptyDoc(hoop.id), [{ x: 0, y: 0 }, { x: 10, y: 0 }], brush, 1)
+    const id = d.items[0].id
+    d = appendStroke(d, id, [{ x: 50, y: 50 }, { x: 80, y: 50 }], 1)
+    d = removeLastStroke(d, id)
+    expect((d.items[0] as DrawItem).strokes).toHaveLength(1)
+    d = removeLastStroke(d, id)
+    expect(d.items).toHaveLength(0)
+    expect(d.selectedId).toBeNull()
+  })
+
+  it('組成請求：粗細公釐換成 0.1mm，筆畫原樣帶過去', () => {
+    const d = startDraw(emptyDoc(hoop.id), [{ x: 0, y: 0 }, { x: 100, y: 0 }], { ...brush, filled: true }, 1)
+    const it = toRequest(d, hoop, []).request.items[0]
+    expect(it).toMatchObject({ kind: 'draw', width: 25, filled: true, color: { name: THREADS_NAME_3 } })
+    if (it.kind !== 'draw') throw new Error('應是手繪')
+    expect(it.strokes).toHaveLength(1)
+  })
+})
+
+import { THREADS } from '../src/lib/threads'
+const THREADS_NAME_3 = THREADS[3].name

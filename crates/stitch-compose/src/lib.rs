@@ -410,10 +410,7 @@ fn cached_image_shapes(req: &ImageRequest) -> Result<ImageShapes, UserMessage> {
     if let Some(hit) = CACHE.with(|c| c.borrow().iter().find(|e| e.0 == h).map(|e| e.1.clone())) {
         return Ok(hit);
     }
-    let out = image_shapes(req).map_err(|b| {
-        b.blocked
-            .unwrap_or_else(|| problem("bad_image", "這張圖打不開。", "請換一張圖。"))
-    })?;
+    let out = image_shapes(req)?;
     CACHE.with(|c| {
         let mut c = c.borrow_mut();
         c.push((h, out.clone()));

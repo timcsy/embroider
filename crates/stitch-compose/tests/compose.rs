@@ -349,7 +349,11 @@ fn 同一張圖移動後不必重算_第二次明顯更快() {
     };
     let run = |x: f64| {
         let t = std::time::Instant::now();
-        let r = build_composite(&fonts(), &req(vec![make(x)], "b70-large"), &[rgba.clone()]);
+        let r = build_composite(
+            &fonts(),
+            &req(vec![make(x)], "b70-large"),
+            std::slice::from_ref(&rgba),
+        );
         assert!(r.preview.blocked.is_none());
         t.elapsed()
     };

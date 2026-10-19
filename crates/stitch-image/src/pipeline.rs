@@ -56,8 +56,8 @@ pub struct ImageRequest {
     pub settings: Settings,
 }
 
-fn blocked(code: &str, text: &str, hint: &str) -> PreviewResult {
-    PreviewResult::blocked(UserMessage::new(code, text, Some(hint)))
+fn fail(code: &str, text: &str, hint: &str) -> UserMessage {
+    UserMessage::new(code, text, Some(hint))
 }
 
 /// 長邊超過 `MAX_SIDE` 時以方塊平均縮小；一半以上透明的方塊視為透明。
@@ -314,11 +314,11 @@ pub struct ImageShapes {
 }
 
 /// 圖片 → 形狀。不放進框、不鋪針，讓呼叫端決定怎麼擺。無法轉換時回傳白話原因（`blocked`）。
-pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, PreviewResult> {
+pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, UserMessage> {
     let simplify = req.simplify.min(100) as f64;
     let (rgba, w, h) = downscale(&req.rgba, req.width, req.height);
     if rgba.len() != req.rgba.len() && req.rgba.len() != req.width * req.height * 4 {
-        return Err(blocked(
+        return Err(fail(
             "bad_image",
             "這張圖打不開。",
             "請換一張圖，或重新選一次。",
@@ -329,10 +329,7 @@ pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, PreviewResult> {
     let importance = importance_map(&rgba, w, h);
     // 先保邊平滑：同一個色塊的顏色變一致，分群出來的區域才大而完整，不會碎成一堆小點
     let rgba = edge_preserving_smooth(&rgba, w, h, 20 + (simplify * 0.6) as u32);
-    let q = match quantize(&rgba, w, h, req.color_count) {
-        Ok(q) => q,
-        Err(m) => return Err(PreviewResult::blocked(m)),
-    };
+    let q = quantize(&rgba, w, h, req.color_count)?;
     let mut labels = q.labels.clone();
     let centers = merge_close(&mut labels, &q.centers);
     let palette = threads();
@@ -378,7 +375,7 @@ pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, PreviewResult> {
     }
     let before = labels.iter().filter(|&&l| l >= 0).count();
     if before == 0 {
-        return Err(blocked(
+        return Err(fail(
             "single_color",
             "這張圖幾乎只有一種顏色，沒有可以繡出圖案的地方。",
             "請換一張有好幾種顏色、圖案分明的圖。",
@@ -446,7 +443,7 @@ pub fn image_shapes(req: &ImageRequest) -> Result<ImageShapes, PreviewResult> {
         ));
     }
     if shapes.is_empty() {
-        return Err(blocked(
+        return Err(fail(
             "nothing_left",
             "圖案太細碎了，簡化之後什麼都沒剩下。",
             "請把「簡化程度」調低一點，或把圖放大一點。",
@@ -496,7 +493,7 @@ pub fn build_image_preview(req: &ImageRequest) -> PreviewResult {
         mut notes,
     } = match image_shapes(req) {
         Ok(v) => v,
-        Err(blocked) => return blocked,
+        Err(m) => return PreviewResult::blocked(m),
     };
     let mut result = build_plan_with_blends(
         &shapes,

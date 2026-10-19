@@ -711,11 +711,12 @@
 
   /* 手機與直放的平板：一欄，畫布固定在上面，工具在下面捲動 */
   .work { display: block; }
-  .stage-col .canvas-card { position: sticky; top: 0; z-index: 5; margin-top: 8px; }
+  .stage-col { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 1px; }
+  .stage-col .canvas-card { margin-top: 8px; }
   /* 平板橫放與電腦：畫布在左、工具在右 */
   @media (min-width: 900px) {
     .work { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; align-items: start; }
-    .stage-col .canvas-card { top: 12px; }
+    .stage-col { top: 12px; background: transparent; }
     main { padding-bottom: 40px; }
     .save { position: sticky; bottom: 0; left: auto; right: auto; grid-column: 1 / -1; }
   }

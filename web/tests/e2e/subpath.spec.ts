@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { addText } from './helpers'
 
 // 放在子路徑（例如 GitHub Pages 的 /embroider/）時，程式、字型、Worker 都要找得到。
 const DIST = join(process.cwd(), 'dist')
@@ -49,8 +50,7 @@ test('放在子路徑也能打字、看到預覽（字型由 Worker 載入）', 
     if (r.status() >= 400) failed.push(`${r.status()} ${r.url()}`)
   })
   await page.goto(`${origin}/embroider/`)
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await addText(page)
   await box.fill('王小明')
   await expect(page.getByTestId('size')).toContainText('公分', { timeout: 30_000 })
   await expect(page.getByRole('alert')).toHaveCount(0)

@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use stitch_core::hoop::Hoop;
 use stitch_core::{ThreadColor, UserMessage};
 use stitch_gen::design::{build_plan_styled, BlendPair, ColoredShape, PreviewResult, Settings};
-use stitch_gen::min_size::{enlarge_needed, MinSizeParams};
+use stitch_gen::min_size::{enlarge_needed, shrink_limit, MinSizeParams};
 use stitch_geom::Polygon;
 use stitch_image::{image_shapes, ImageRequest, ImageShapes};
 use stitch_text::{text_to_polygon, FontSet, Layout};
@@ -390,11 +390,16 @@ pub fn build_composite(
     let mut blends: Vec<Option<BlendPair>> = Vec::new();
     let mut smart: Vec<bool> = Vec::new();
     let mut notes: Vec<UserMessage> = Vec::new();
-    // 每個文字物件的實際字高（0.1mm，整體縮小之前）
-    let mut text_heights: Vec<f64> = Vec::new();
+    // 每個文字物件：整體縮小之前的實際倍率，與「最少要多大才繡得出來」（字高與筆畫夠寬兩者中較嚴的）
+    let mut text_limits: Vec<(f64, f64)> = Vec::new();
     let min_params = MinSizeParams {
         min_text_height: s.min_text_height,
         min_stroke_width: 0.0,
+    };
+    // 文字要被縮小時，筆畫也不能細到繡不出來
+    let full_params = MinSizeParams {
+        min_text_height: s.min_text_height,
+        min_stroke_width: s.min_stroke_width,
     };
 
     for item in &req.items {
@@ -434,7 +439,15 @@ pub fn build_composite(
         }
         if built.min_text {
             if let Content::Text { height, .. } = &item.content {
-                text_heights.push(height * effective);
+                let raw = Polygon::new(
+                    built
+                        .shapes
+                        .iter()
+                        .flat_map(|c| c.polygon.rings.clone())
+                        .collect(),
+                );
+                let floor = shrink_limit(&raw, effective, *height, &full_params);
+                text_limits.push((effective, floor));
             }
         }
         notes.extend(built.notes.iter().cloned());
@@ -473,10 +486,7 @@ pub fn build_composite(
     if preview.blocked.is_none() {
         // 整體縮小之後，文字不能小到繡不出來
         let k = preview.fitted_scale;
-        if text_heights
-            .iter()
-            .any(|h| h * k < s.min_text_height - 1e-6)
-        {
+        if text_limits.iter().any(|&(e, floor)| e * k < floor - 1e-6) {
             return CompositeResult {
                 preview: PreviewResult::blocked(UserMessage::new(
                     "too_big_for_hoop",

@@ -12,6 +12,11 @@ export interface SavedImage {
   png: Uint8Array
 }
 
+export interface SavedImageWithId extends SavedImage {
+  /** 設計裡的圖片物件用這個編號指到這張圖 */
+  id: string
+}
+
 export interface SavedDesign {
   /** 同一個設計的識別（例如 text:王小明），再存一次會更新而不是新增 */
   id: string
@@ -20,6 +25,8 @@ export interface SavedDesign {
   /** 畫面上的設定（模式、字型、大小、顏色、框…） */
   params: Record<string, unknown>
   image?: SavedImage
+  /** 編輯器的設計可以有好幾張圖 */
+  images?: SavedImageWithId[]
 }
 
 export type NewDesign = Omit<SavedDesign, 'savedAt'>

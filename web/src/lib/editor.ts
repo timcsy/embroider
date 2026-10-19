@@ -267,3 +267,31 @@ export function toRequest(
   }
   return { request: { items: out, hoop }, images, ids }
 }
+
+/** 舊版（一次只有文字或一張圖）存下來的設計，轉成編輯器的一個物件。 */
+export function fromLegacy(p: Record<string, unknown>, imageId?: string): EditorItem | null {
+  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+  const base = { id: 'item-1', x: 0, y: 0, rotation: 0, scale: 1 }
+  if (p.mode === 'text') {
+    return {
+      ...base,
+      kind: 'text',
+      text: typeof p.text === 'string' ? p.text : '',
+      fontId: typeof p.fontId === 'string' ? p.fontId : 'sans',
+      heightCm: num(p.sizeCm, 2.5),
+      colorIdx: num(p.colorIdx, 0),
+    }
+  }
+  if (p.mode === 'image' && imageId) {
+    return {
+      ...base,
+      kind: 'image',
+      imageId,
+      colors: num(p.colors, 4),
+      simplify: num(p.simplify, 30),
+      sizeCm: num(p.imageSizeCm, 8),
+      crop: null,
+    }
+  }
+  return null
+}

@@ -166,7 +166,7 @@ fn 太小的字會放大並回報實際大小() {
 #[test]
 fn 超出框會縮小整個設計_相對位置不變() {
     // 兩個字放在框的兩端之外
-    let items = vec![text("a", "左", -1500.0, 0.0), text("b", "右", 1500.0, 0.0)];
+    let items = vec![text("a", "左", -540.0, 0.0), text("b", "右", 540.0, 0.0)];
     let r = build_composite(&fonts(), &req(items, "b70-medium"), &[]);
     assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
     assert!(r.preview.fitted_scale < 1.0);

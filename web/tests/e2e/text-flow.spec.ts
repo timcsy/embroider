@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { open, startText } from './helpers'
 import { readFileSync } from 'node:fs'
 
 test('輸入文字 → 預覽 → 選框 → 存出檔案', async ({ page }) => {
@@ -7,9 +8,7 @@ test('輸入文字 → 預覽 → 選框 → 存出檔案', async ({ page }) => 
     downloads.push({ name: d.suggestedFilename(), path: (await d.path()) ?? '' })
   })
 
-  await page.goto('/')
-  const box = page.getByRole('textbox')
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
 
   // 一開始沒有文字：不能存
   await expect(page.getByTestId('save')).toBeDisabled()
@@ -47,18 +46,14 @@ test('輸入文字 → 預覽 → 選框 → 存出檔案', async ({ page }) => 
 })
 
 test('空白文字不能存，也沒有嚇人的錯誤', async ({ page }) => {
-  await page.goto('/')
-  const box = page.getByRole('textbox')
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   await box.fill('   ')
   await expect(page.getByTestId('save')).toBeDisabled()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('復原與重做', async ({ page }) => {
-  await page.goto('/')
-  const box = page.getByRole('textbox')
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   await box.fill('Amy')
   await page.getByRole('radio', { name: '宋體' }).click()
   await expect(page.getByRole('radio', { name: '宋體' })).toHaveAttribute('aria-checked', 'true')
@@ -70,9 +65,7 @@ test('復原與重做', async ({ page }) => {
 })
 
 test('拖動「字的大小」，實際大小跟著變', async ({ page }) => {
-  await page.goto('/')
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   await box.fill('王小明')
   const widthCm = async () => {
     const t = (await page.getByTestId('size').textContent()) ?? ''
@@ -87,9 +80,7 @@ test('拖動「字的大小」，實際大小跟著變', async ({ page }) => {
 })
 
 test('換線色：預覽的顏色跟著變', async ({ page }) => {
-  await page.goto('/')
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   await box.fill('王小明')
   await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
   const dominant = () =>
@@ -117,15 +108,12 @@ test('整個過程沒有任何對外連線（圖片與設計不離開手機）',
       external.push(r.url())
     }
   })
-  await page.goto('/')
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   await box.fill('王小明')
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
   await page.getByTestId('save').click()
   await expect(page.getByTestId('export-sheet')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '好了' }).click()
-  await page.getByTestId('tab-image').click()
   await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
   expect(external).toEqual([])

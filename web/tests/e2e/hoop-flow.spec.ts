@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test'
+import { startText } from './helpers'
 
 async function ready(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
+  const box = await startText(page)
   return box
 }
 

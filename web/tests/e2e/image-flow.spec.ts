@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { addText } from './helpers'
 
 const fixture = (name: string) => resolve(process.cwd(), 'tests/e2e/fixtures', name)
 
 async function openImageTab(page: import('@playwright/test').Page) {
   await page.goto('/')
-  await expect(page.getByTestId('tab-image')).toBeVisible({ timeout: 30_000 })
-  await page.getByTestId('tab-image').click()
+  await expect(page.getByTestId('add-image')).toBeVisible({ timeout: 30_000 })
 }
 
 test('選一張三色圖：預覽出現三種顏色，可以調整，可以存出', async ({ page }) => {
@@ -15,7 +15,7 @@ test('選一張三色圖：預覽出現三種顏色，可以調整，可以存�
   page.on('download', async (d) => downloads.push({ name: d.suggestedFilename(), path: (await d.path()) ?? '' }))
 
   await openImageTab(page)
-  await expect(page.getByText('還沒有選圖片')).toBeVisible()
+  await expect(page.getByText('按下面的按鈕')).toBeVisible()
   await expect(page.getByTestId('save')).toBeDisabled()
 
   await page.getByTestId('file-input').setInputFiles(fixture('logo.png'))
@@ -71,13 +71,14 @@ test('選到不是圖片的檔案：白話提示，畫面不壞', async ({ page 
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 })
 
-test('切換回打字再切回圖片，選好的圖還在', async ({ page }) => {
+test('圖片和文字可以放在同一個設計：兩個物件都在，存得出來', async ({ page }) => {
   await openImageTab(page)
   await page.getByTestId('file-input').setInputFiles(fixture('logo.png'))
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
-  await page.getByTestId('tab-text').click()
-  await expect(page.getByTestId('save')).toBeDisabled()
-  await page.getByTestId('tab-image').click()
+  await addText(page)
+  await page.getByRole('textbox', { name: '想繡什麼字？' }).fill('Amy')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('[data-testid^="item-"]')).toHaveCount(2)
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 })
 
@@ -125,6 +126,7 @@ test('在圖上圈出一部分：只繡框內的，可以還原成整張圖', as
 
   // 圖的左上角是紅色方塊：只圈左上四分之一強
   const area = page.getByTestId('crop-area')
+  await area.scrollIntoViewIfNeeded()
   const b = (await area.boundingBox())!
   await page.mouse.move(b.x + b.width * 0.02, b.y + b.height * 0.02)
   await page.mouse.down()

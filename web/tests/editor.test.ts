@@ -200,3 +200,22 @@ describe('組成送給核心的請求', () => {
     expect(build(d).request.items).toHaveLength(1)
   })
 })
+
+import { fromLegacy } from '../src/lib/editor'
+
+describe('舊版存下來的設計', () => {
+  it('文字設計變成一個文字物件', () => {
+    const it = fromLegacy({ mode: 'text', text: '王小明', fontId: 'serif', sizeCm: 3, colorIdx: 5 })
+    expect(it).toMatchObject({ kind: 'text', text: '王小明', fontId: 'serif', heightCm: 3, colorIdx: 5, x: 0, y: 0 })
+  })
+
+  it('圖片設計變成一個圖片物件，需要指定圖片編號', () => {
+    const it = fromLegacy({ mode: 'image', colors: 6, simplify: 40, imageSizeCm: 9 }, 'img-1')
+    expect(it).toMatchObject({ kind: 'image', imageId: 'img-1', colors: 6, simplify: 40, sizeCm: 9 })
+  })
+
+  it('沒有圖片編號的圖片設計、看不懂的內容回傳 null', () => {
+    expect(fromLegacy({ mode: 'image' })).toBeNull()
+    expect(fromLegacy({ mode: 'other' })).toBeNull()
+  })
+})

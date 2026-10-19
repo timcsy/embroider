@@ -6,7 +6,7 @@
   import { createPrefs, type Prefs } from './lib/prefs'
   import { strings } from './lib/strings.zh-TW'
   import type { OutputFormatInfo } from './lib/types'
-  import DesignPage from './routes/DesignPage.svelte'
+  import EditorPage from './routes/EditorPage.svelte'
   import TryOnMachine from './routes/TryOnMachine.svelte'
 
   function makeClient(): CoreClient {
@@ -40,9 +40,9 @@
 {#await boot}
   <p class="status" role="status">{strings.loading}</p>
 {:then ready}
-  <!-- 切換畫面時不卸載文字頁，這樣回來時輸入的內容與復原紀錄都還在 -->
+  <!-- 切換畫面時不卸載編輯頁，這樣回來時做到一半的設計與復原紀錄都還在 -->
   <div hidden={screen !== 'text'}>
-    <DesignPage {client} store={ready.store} prefs={ready.prefs} formats={ready.formats} onTry={() => (screen = 'try')} />
+    <EditorPage {client} store={ready.store} prefs={ready.prefs} formats={ready.formats} onTry={() => (screen = 'try')} />
   </div>
   {#if screen === 'try'}
     <TryOnMachine formats={ready.formats} prefs={ready.prefs} onBack={() => (screen = 'text')} />

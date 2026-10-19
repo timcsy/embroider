@@ -1,9 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { addText } from './helpers'
 
 async function ready(page: Page) {
-  const box = page.getByRole('textbox', { name: '想繡什麼字？' })
-  await expect(box).toBeVisible({ timeout: 30_000 })
-  return box
+  return addText(page)
 }
 
 /** 等 service worker 啟用、程式與字型都預先快取好。 */
@@ -78,7 +77,6 @@ test('載入一次後斷網：打字、預覽、存出都能做，自訂的框�
 
   // 圖片流程斷網也能用
   await page.getByRole('button', { name: '好了' }).click()
-  await page.getByTestId('tab-image').click()
   await page
     .getByTestId('file-input')
     .setInputFiles('tests/e2e/fixtures/logo.png')

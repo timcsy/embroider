@@ -78,7 +78,7 @@ test('圖片和文字可以放在同一個設計：兩個物件都在，存得�
   await addText(page)
   await page.getByRole('textbox', { name: '想繡什麼字？' }).fill('Amy')
   await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('[data-testid^="item-"]')).toHaveCount(2)
+  await expect(page.locator('[data-testid^="item-item-"]')).toHaveCount(2)
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 })
 
@@ -126,9 +126,9 @@ test('在圖上圈出一部分：只繡框內的，可以還原成整張圖', as
 
   // 圖的左上角是紅色方塊：只圈左上四分之一強
   const area = page.getByTestId('crop-area')
-  await area.scrollIntoViewIfNeeded()
+  await area.evaluate((el) => el.scrollIntoView({ block: 'center' }))
   const b = (await area.boundingBox())!
-  await page.mouse.move(b.x + b.width * 0.02, b.y + b.height * 0.02)
+  await page.mouse.move(b.x + b.width * 0.12, b.y + b.height * 0.12)
   await page.mouse.down()
   await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.5, { steps: 5 })
   await page.mouse.up()

@@ -228,6 +228,7 @@ fn build_item(
     item: &Item,
     images: &[Vec<u8>],
     settings: &Settings,
+    hoop: &Hoop,
 ) -> Result<Built, UserMessage> {
     match &item.content {
         Content::Text {
@@ -238,8 +239,20 @@ fn build_item(
             max_width,
         } => {
             let layout = max_width.map_or(Layout::SingleLine, |w| Layout::Wrap { max_width: w });
-            let laid = text_to_polygon(fonts, font_id, text, *height, layout)?;
+            let mut laid = text_to_polygon(fonts, font_id, text, *height, layout)?;
             let mut notes = Vec::new();
+            if max_width.is_none() {
+                if let Some(wrapped) =
+                    wrap_if_cramped(fonts, font_id, text, *height, &laid, item.scale, hoop)
+                {
+                    laid = wrapped;
+                    notes.push(UserMessage::new(
+                        "wrapped",
+                        "字比較多，一行放不下，已經幫你分成幾行。",
+                        Some("想要一行就好的話，可以把字改小一點，或換比較大的框。"),
+                    ));
+                }
+            }
             let list = |cs: &[char]| cs.iter().map(|c| format!("「{c}」")).collect::<String>();
             if !laid.missing.is_empty() {
                 notes.push(UserMessage::new(
@@ -329,6 +342,51 @@ fn build_item(
     }
 }
 
+/// 單行得縮到比這個倍率還小，就考慮改成分行。
+const WRAP_IF_BELOW: f64 = 0.75;
+/// 分行後的字要比單行大這麼多倍，才值得分行。
+const WRAP_MUST_GAIN: f64 = 1.15;
+
+/// 單行放進框得縮很小時，改成依框寬分行；分行沒有明顯比較大就維持單行。
+fn wrap_if_cramped(
+    fonts: &FontSet,
+    font_id: &str,
+    text: &str,
+    height: f64,
+    single: &stitch_text::TextLayout,
+    scale: f64,
+    hoop: &Hoop,
+) -> Option<stitch_text::TextLayout> {
+    let inner = match hoop.shape {
+        stitch_core::hoop::HoopShape::Rect => 1.0,
+        _ => std::f64::consts::FRAC_1_SQRT_2,
+    };
+    let safe_w = (hoop.width - 2 * hoop.margin) as f64 * inner;
+    let safe_h = (hoop.height - 2 * hoop.margin) as f64 * inner;
+    let user = if scale > 0.0 { scale } else { 1.0 };
+    let fit = |l: &stitch_text::TextLayout| {
+        let [w, h] = polygon_size(&l.polygon);
+        (safe_w / (w * user).max(1.0))
+            .min(safe_h / (h * user).max(1.0))
+            .min(1.0)
+    };
+    let eff_single = fit(single);
+    if eff_single >= WRAP_IF_BELOW {
+        return None;
+    }
+    let wrapped = text_to_polygon(
+        fonts,
+        font_id,
+        text,
+        height,
+        Layout::Wrap {
+            max_width: safe_w / user,
+        },
+    )
+    .ok()?;
+    (fit(&wrapped) > eff_single * WRAP_MUST_GAIN).then_some(wrapped)
+}
+
 /// 圖片轉形狀很花時間；拖移、旋轉、縮放物件時圖片本身沒變，用快取避免每次重算。
 fn cached_image_shapes(req: &ImageRequest) -> Result<ImageShapes, UserMessage> {
     thread_local! {
@@ -404,7 +462,7 @@ pub fn build_composite(
 
     for item in &req.items {
         let user_scale = if item.scale > 0.0 { item.scale } else { 1.0 };
-        let built = match build_item(fonts, item, images, s) {
+        let built = match build_item(fonts, item, images, s, &req.hoop) {
             Ok(b) => b,
             Err(m) => {
                 infos.push(ItemInfo {

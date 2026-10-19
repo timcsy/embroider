@@ -383,6 +383,12 @@
     refreshHoops()
   }
 
+  // 手機上畫布固定在最上面，捲動到下面的工具時不要被它蓋住：告訴瀏覽器要多留這麼多位置
+  let stageHeight = $state(0)
+  $effect(() => {
+    document.documentElement.style.setProperty('--stage-h', `${stageHeight + 24}px`)
+  })
+
   const shapeKinds: ShapeKind[] = ['circle', 'rect', 'heart', 'star', 'line']
   let shapeMenu = $state(false)
 </script>
@@ -401,7 +407,7 @@
 
   <div class="work">
     <section class="stage-col">
-      <div class="card canvas-card">
+      <div class="card canvas-card" bind:clientHeight={stageHeight}>
         <EditorCanvas
           {plan}
           {hoop}
@@ -692,6 +698,8 @@
 {/if}
 
 <style>
+  :global(html) { scroll-padding-top: var(--stage-h, 0px); scroll-padding-bottom: 130px; }
+  @media (min-width: 900px) { :global(html) { scroll-padding-top: 0; scroll-padding-bottom: 0; } }
   main { max-width: 1180px; margin: 0 auto; padding: 12px 16px 150px; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   h1 { font-size: 1.4em; margin: 6px 0; }

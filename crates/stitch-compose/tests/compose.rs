@@ -358,3 +358,47 @@ fn 同一張圖移動後不必重算_第二次明顯更快() {
     // 第二次只需要鋪針，不必再轉圖
     assert!(second < first, "{first:?} → {second:?}");
 }
+
+#[test]
+fn 七個字放不進小框會被擋下並說明() {
+    let mut t = text("a", "王小明的刺繡作", 0.0, 0.0);
+    if let Content::Text { height, .. } = &mut t.content {
+        *height = 250.0;
+    }
+    let r = build_composite(&fonts(), &req(vec![t], "b70-small"), &[]);
+    assert_eq!(
+        r.preview.blocked.map(|m| m.code),
+        Some("too_big_for_hoop".into()),
+        "{:?}",
+        r.preview.adjustments
+    );
+}
+
+#[test]
+fn 一行放不下的長句自動分行並說明() {
+    let long = "王小明的刺繡作品展覽很長的一段文字";
+    let r = build_composite(
+        &fonts(),
+        &req(vec![text("a", long, 0.0, 0.0)], "b70-large"),
+        &[],
+    );
+    assert!(r.preview.blocked.is_none(), "{:?}", r.preview.blocked);
+    assert!(
+        r.preview.adjustments.iter().any(|m| m.code == "wrapped"),
+        "{:?}",
+        r.preview.adjustments
+    );
+    // 分行後比單行高
+    let (_, y0, _, y1) = bounds(&r);
+    assert!(y1 - y0 > 300.0, "高度 {}", y1 - y0);
+}
+
+#[test]
+fn 短的名字不會被分行() {
+    let r = build_composite(
+        &fonts(),
+        &req(vec![text("a", "王小明", 0.0, 0.0)], "b70-medium"),
+        &[],
+    );
+    assert!(!r.preview.adjustments.iter().any(|m| m.code == "wrapped"));
+}

@@ -568,28 +568,23 @@
             <p class="muted" role="status">{strings.updating}</p>
           {/if}
         </div>
-        {#if preview?.blocked && !isEmptyHint}
-          <Notice message={preview.blocked} tone="warn" />
-        {/if}
-        {#each preview?.adjustments ?? [] as m (m.code + m.text)}
-          <Notice message={m} />
-        {/each}
-        {#if failure}
-          <Notice message={failure} tone="warn" />
-        {/if}
         {#if resumed && doc.items.length > 0}
           <p class="muted" role="status" data-testid="resumed-note">{strings.editor.resumed}</p>
         {/if}
-        {#if removedNote}
-          <div class="toast" role="status" data-testid="removed-note">
-            <span>{strings.editor.removed(removedNote.name)}</span>
-            <button onclick={takeBack} data-testid="take-back">{strings.editor.undoRemove}</button>
-          </div>
+        {#if preview?.blocked && !isEmptyHint}
+          <Notice message={preview.blocked} tone="warn" />
         {/if}
       </div>
     </section>
 
     <section class="panel-col">
+      {#each preview?.adjustments ?? [] as m (m.code + m.text)}
+        <Notice message={m} />
+      {/each}
+      {#if failure}
+        <Notice message={failure} tone="warn" />
+      {/if}
+
       <div class="card add-bar">
         <h2>{strings.editor.addTitle}</h2>
         <div class="adds">
@@ -939,6 +934,13 @@
     </section>
   </div>
 
+    {#if removedNote}
+      <div class="toast" role="status" data-testid="removed-note">
+        <span>{strings.editor.removed(removedNote.name)}</span>
+        <button onclick={takeBack} data-testid="take-back">{strings.editor.undoRemove}</button>
+      </div>
+    {/if}
+
   <div class="save">
     <button class="primary" onclick={() => save('default')} disabled={!canSave || saving || computing} data-testid="save">
       {saving ? strings.actions.saving : strings.actions.saveToUsb}
@@ -998,7 +1000,7 @@
   .tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .tools button:disabled { opacity: 0.4; }
   .tools .danger { border-color: #d89a9a; color: #9c1c1c; }
-  .toast { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff7e0; border: 2px solid #e8c25a; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(110px + env(safe-area-inset-bottom)); z-index: 7; max-width: 560px; margin: 0 auto; box-shadow: 0 4px 14px rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff7e0; border: 2px solid #e8c25a; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
   .tools .primary-ish { border-color: var(--accent); background: #fdecec; }
   .group { background: #eef5ff; border: 2px solid #9db8e8; border-radius: 12px; padding: 4px 12px 12px; margin: 12px 0 0; }
   .group p { margin: 8px 0; }

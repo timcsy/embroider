@@ -29,6 +29,7 @@
     fit,
     selectedId,
     label,
+    fill = false,
     drawing = false,
     brush = { css: '#b3282d', units: 25 },
     onSelect,
@@ -48,6 +49,8 @@
     onChange: (id: string, patch: Partial<EditorItem>, key: string) => void
     onRemove: (id: string) => void
     /** 畫畫模式：手指畫完一筆時呼叫，點是框座標（已套用整體縮小） */
+    /** 寬螢幕（畫布在左、工具在右）：畫布盡量放大；窄螢幕要留位置給下面的工具 */
+    fill?: boolean
     drawing?: boolean
     brush?: { css: string; units: number }
     onStroke?: (points: Pt[]) => void
@@ -59,7 +62,9 @@
   let viewportH = $state(typeof window === 'undefined' ? 800 : window.innerHeight)
 
   // 畫布大小：寬度盡量用滿，但高度不超過畫面的三成（矮螢幕）、四成（手機直立，下面要留位置給工具）到八成（電腦）
-  const maxH = $derived(viewportH * (avail > 700 ? 0.78 : viewportH < 700 ? 0.3 : 0.4))
+  const maxH = $derived(
+    fill ? Math.max(320, viewportH - 190) : viewportH * (viewportH < 700 ? 0.3 : 0.4),
+  )
   const ratio = $derived(hoop.width / hoop.height)
   const width = $derived(Math.max(200, Math.min(avail, maxH * ratio)))
   const height = $derived(Math.round(width / ratio))
@@ -215,9 +220,23 @@
     }
   }
 
+  // 滑鼠移到不同地方，游標跟著變：把手可以拉、物件可以拖
+  let cursor = $state('default')
+  function hover(cp: Pt) {
+    if (drawing) return
+    if (selected && selectedBox) {
+      if (dist(cp, rotatePx(selectedBox)) <= HANDLE_HIT) return (cursor = 'grab')
+      for (const { sx, sy } of corners(selectedBox)) {
+        if (dist(cp, cornerPx(selectedBox, sx, sy)) <= HANDLE_HIT) return (cursor = 'nwse-resize')
+      }
+    }
+    const p = fromCanvas(view, cp.x, cp.y)
+    cursor = topHit(boxes, p, PAD_PX / view.scale) >= 0 ? 'move' : 'default'
+  }
+
   function onMove(e: PointerEvent) {
     if (drawing) return strokeMove(e)
-    if (!pointers.has(e.pointerId)) return
+    if (!pointers.has(e.pointerId)) return hover(local(e))
     const cp = local(e)
     pointers.set(e.pointerId, cp)
     if (pinchStart && pointers.size >= 2) {
@@ -310,6 +329,7 @@
       onpointerup={onUp}
       onpointercancel={onUp}
       class:drawing
+      style:cursor={drawing ? 'crosshair' : cursor}
       onkeydown={onKey}
       use:wheel
     >

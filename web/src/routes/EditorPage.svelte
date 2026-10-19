@@ -83,6 +83,10 @@
     onTry: () => void
   } = $props()
 
+  // 寬螢幕（平板橫放、電腦）：加東西與存檔放在上面的工具列，畫布與工具區各自捲動
+  let winW = $state(typeof window === 'undefined' ? 1000 : window.innerWidth)
+  const wide = $derived(winW >= 900)
+
   // 整份替換、不局部修改，用 raw：代理物件無法傳給 Worker
   let hoops = $state.raw<Hoop[]>(untrack(() => store.list()))
 
@@ -520,17 +524,91 @@
   const rowOf = (id: string, axis: 'x' | 'y') =>
     commit(repeatRow(doc, id, { count: manyCount, gap: manyGapCm * 100, axis, size: itemSize(id) }))
 
+  // 鍵盤快捷鍵（電腦）：Ctrl／⌘ + Z 上一步、+ Shift + Z 或 Y 下一步、+ D 複製；Delete 刪掉選到的。
+  // 在輸入框裡打字時不攔截（輸入框自己有復原）。
+  function onShortcut(e: KeyboardEvent) {
+    const el = e.target as HTMLElement | null
+    if (e.defaultPrevented || el?.closest('input, textarea, select, [contenteditable]')) return
+    const mod = e.ctrlKey || e.metaKey
+    const key = e.key.toLowerCase()
+    if (mod && key === 'z') {
+      e.preventDefault()
+      return e.shiftKey ? redo() : undo()
+    }
+    if (mod && key === 'y') {
+      e.preventDefault()
+      return redo()
+    }
+    if (mod && key === 'd' && selected) {
+      e.preventDefault()
+      return commit(duplicateItem(doc, selected.id))
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selected && !drawing) {
+      e.preventDefault()
+      remove(selected.id)
+    }
+  }
+
   const shapeKinds: ShapeKind[] = ['circle', 'rect', 'heart', 'star', 'line']
   let shapeMenu = $state(false)
 </script>
 
+{#snippet addBar()}
+      <div class="card add-bar" class:bar={wide}>
+        {#if !wide}<h2>{strings.editor.addTitle}</h2>{/if}
+        <div class="adds">
+          <button onclick={() => commit(addText(doc))} data-testid="add-text">{strings.editor.addText}</button>
+          <button onclick={() => pickImage()} data-testid="add-image">{strings.editor.addImage}</button>
+          <button onclick={() => cameraInput?.click()}>{strings.editor.addPhoto}</button>
+          <button onclick={() => (shapeMenu = !shapeMenu)} aria-expanded={shapeMenu} data-testid="add-shape">{strings.editor.addShape}</button>
+          <button onclick={startDrawing} data-testid="add-draw">{strings.editor.addDraw}</button>
+        </div>
+        {#if shapeMenu}
+          <div class="menu" data-testid="shape-menu">
+            <div class="chips shapes" role="group" aria-label={strings.editor.addShape}>
+              {#each shapeKinds as k (k)}
+                <button
+                  onclick={() => {
+                    addShapeOf(k)
+                    shapeMenu = false
+                  }}
+                  data-testid="shape-{k}">{strings.editor.shapes[k]}</button>
+              {/each}
+              <button onclick={() => { commit(addFrame(doc, 'rect', hoop)); shapeMenu = false }} data-testid="frame-rect">{strings.editor.frameRect}</button>
+              <button onclick={() => { commit(addFrame(doc, 'circle', hoop)); shapeMenu = false }} data-testid="frame-circle">{strings.editor.frameCircle}</button>
+            </div>
+          </div>
+        {/if}
+        {#if loadingImage}<p class="muted" role="status">{strings.image.loading}</p>{/if}
+        {#if imageProblem}<Notice message={imageProblem} tone="warn" />{/if}
+      </div>
+
+{/snippet}
+
+{#snippet saveBar()}
+  <div class="save" class:bar={wide}>
+    <button class="primary" onclick={() => save('default')} disabled={!canSave || saving || computing} data-testid="save">
+      {saving ? strings.actions.saving : strings.actions.saveToUsb}
+    </button>
+    <p class="default" data-testid="default-note">{defaultLabel}</p>
+  </div>
+{/snippet}
+
+<svelte:window bind:innerWidth={winW} onkeydown={onShortcut} />
+
 <main>
   <header>
     <h1>{strings.appName}</h1>
+    {#if wide}
+      {@render addBar()}
+    {/if}
     <div class="history">
       <button onclick={undo} disabled={!canUndo} aria-label={strings.actions.undo}>↶ {strings.actions.undo}</button>
       <button onclick={redo} disabled={!canRedo} aria-label={strings.actions.redo}>{strings.actions.redo} ↷</button>
     </div>
+    {#if wide}
+      {@render saveBar()}
+    {/if}
   </header>
 
   <input type="file" accept="image/*" hidden bind:this={fileInput} onchange={onFile} data-testid="file-input" />
@@ -550,6 +628,7 @@
           onSelect={select}
           onChange={(id, p, key) => patch(id, p, key.split(':')[0])}
           onRemove={remove}
+          fill={wide}
           {drawing}
           brush={{ css: brushCss, units: brush.widthMm * 10 }}
           {onStroke}
@@ -585,37 +664,9 @@
         <Notice message={failure} tone="warn" />
       {/if}
 
-      <div class="card add-bar">
-        <h2>{strings.editor.addTitle}</h2>
-        <div class="adds">
-          <button onclick={() => commit(addText(doc))} data-testid="add-text">{strings.editor.addText}</button>
-          <button onclick={() => pickImage()} data-testid="add-image">{strings.editor.addImage}</button>
-          <button onclick={() => cameraInput?.click()}>{strings.editor.addPhoto}</button>
-          <button onclick={() => (shapeMenu = !shapeMenu)} aria-expanded={shapeMenu} data-testid="add-shape">{strings.editor.addShape}</button>
-          <button onclick={startDrawing} data-testid="add-draw">{strings.editor.addDraw}</button>
-        </div>
-        {#if shapeMenu}
-          <div class="chips shapes" role="group" aria-label={strings.editor.addShape}>
-            {#each shapeKinds as k (k)}
-              <button
-                onclick={() => {
-                  addShapeOf(k)
-                  shapeMenu = false
-                }}
-                data-testid="shape-{k}">{strings.editor.shapes[k]}</button>
-            {/each}
-          </div>
-        {/if}
-        {#if shapeMenu}
-          <h3>{strings.editor.frames}</h3>
-          <div class="chips shapes" role="group" aria-label={strings.editor.frames}>
-            <button onclick={() => { commit(addFrame(doc, 'rect', hoop)); shapeMenu = false }} data-testid="frame-rect">{strings.editor.frameRect}</button>
-            <button onclick={() => { commit(addFrame(doc, 'circle', hoop)); shapeMenu = false }} data-testid="frame-circle">{strings.editor.frameCircle}</button>
-          </div>
-        {/if}
-        {#if loadingImage}<p class="muted" role="status">{strings.image.loading}</p>{/if}
-        {#if imageProblem}<Notice message={imageProblem} tone="warn" />{/if}
-      </div>
+      {#if !wide}
+        {@render addBar()}
+      {/if}
 
       {#if drawing}
         <div class="card item-panel" data-testid="draw-panel">
@@ -941,12 +992,9 @@
       </div>
     {/if}
 
-  <div class="save">
-    <button class="primary" onclick={() => save('default')} disabled={!canSave || saving || computing} data-testid="save">
-      {saving ? strings.actions.saving : strings.actions.saveToUsb}
-    </button>
-    <p class="default" data-testid="default-note">{defaultLabel}</p>
-  </div>
+  {#if !wide}
+    {@render saveBar()}
+  {/if}
 </main>
 
 {#if editing}
@@ -984,14 +1032,31 @@
   .work { display: block; }
   .stage-col { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 1px; }
   .stage-col .canvas-card { margin-top: 8px; }
-  /* 平板橫放與電腦：畫布在左、工具在右 */
+  /* 平板橫放與電腦：整個畫面不捲動。上面一條工具列（加東西、上一步、存檔），
+     下面左邊畫布、右邊工具區，兩邊各自捲動，畫布永遠看得到。 */
   @media (min-width: 900px) {
-    .work { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; align-items: start; }
-    .stage-col { top: 12px; background: transparent; }
-    main { padding-bottom: 40px; }
-    .save { position: sticky; bottom: 0; left: auto; right: auto; grid-column: 1 / -1; }
+    main { max-width: none; height: 100vh; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+    header { flex: none; flex-wrap: nowrap; gap: 14px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+    h1 { font-size: 1.15em; margin: 0; white-space: nowrap; }
+    .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 0; align-items: stretch; }
+    .stage-col { position: static; overflow-y: auto; padding: 10px 16px; background: transparent; display: flex; flex-direction: column; justify-content: center; }
+    .stage-col .canvas-card { margin: 0; }
+    .panel-col { overflow-y: auto; padding: 4px 16px 24px; border-left: 1px solid var(--line); background: #fdfaf4; }
+    .panel-col .card:first-child { margin-top: 12px; }
+    :global(html), :global(body) { overflow: hidden; }
   }
 
+  .add-bar.bar { display: block; position: relative; flex: 1; margin: 0; padding: 0; border: 0; background: transparent; }
+  .add-bar.bar :first-child { margin-top: 0; }
+  .add-bar.bar .adds { display: flex; flex-wrap: nowrap; gap: 8px; }
+  .add-bar.bar .adds button { min-height: 48px; padding: 0 16px; white-space: nowrap; }
+  .add-bar.bar .adds button:last-child:nth-child(odd) { grid-column: auto; }
+  /* 圖案選單：從工具列往下展開 */
+  .add-bar.bar > .menu { position: absolute; z-index: 20; top: 54px; left: 0; padding: 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16); }
+  .add-bar.bar > .muted, .add-bar.bar > :global([role=alert]) { position: absolute; top: 54px; left: 0; z-index: 20; }
+  .save.bar { position: static; padding: 0; background: none; z-index: auto; flex: none; }
+  .save.bar .primary { width: auto; min-width: 150px; min-height: 48px; padding: 0 22px; font-size: 1.05em; }
+  .save.bar .default { display: none; }
   .adds { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .adds button, .tools button, .shapes button { min-height: 52px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
   .adds button:first-child { border-color: var(--accent); }
@@ -1029,6 +1094,11 @@
   .size output { min-width: 5.5em; text-align: right; font-weight: 700; }
   .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .swatches button { min-height: 64px; border: 2px solid var(--line); border-radius: 12px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; }
+  @media (min-width: 900px) {
+    .swatches { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .swatches button { min-height: 56px; }
+    .swatches .dot { width: 24px; height: 24px; }
+  }
   .swatches .dot { width: 28px; height: 28px; border-radius: 50%; background: var(--c); border: 1px solid rgba(0, 0, 0, 0.25); }
   .swatches .name { font-size: 0.72em; }
   .swatches button.on { border-color: var(--accent); background: #fdecec; font-weight: 700; }

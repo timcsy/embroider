@@ -484,3 +484,73 @@ test('圖片設計也能接著做', async ({ page }) => {
   await expect(page.getByTestId('resumed-note')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 })
+
+// ── 電腦版 ──
+test.describe('電腦版（1440×900）', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false })
+
+  test('整個畫面不捲動：工具列、畫布、工具區都在畫面裡，畫布夠大', async ({ page }) => {
+    await open(page)
+    await addText(page)
+    await shape(page, 'heart')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const scrolls = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)
+    expect(scrolls, '整頁不該需要捲動').toBeLessThanOrEqual(1)
+    // 加東西與存檔都在最上面一條
+    const save = (await page.getByTestId('save').boundingBox())!
+    const add = (await page.getByTestId('add-text').boundingBox())!
+    expect(save.y).toBeLessThan(80)
+    expect(add.y).toBeLessThan(80)
+    // 畫布高度至少佔畫面一半以上
+    const stage = (await page.getByTestId('stage').boundingBox())!
+    expect(stage.height).toBeGreaterThan(450)
+    // 工具區自己會捲：最底下的「放正中間」之類的按鈕要捲得到、點得到
+    await page.getByTestId('duplicate').scrollIntoViewIfNeeded()
+    await expect(page.getByTestId('duplicate')).toBeVisible()
+  })
+
+  test('鍵盤快捷鍵：Ctrl+Z 上一步、Ctrl+Shift+Z 下一步、Ctrl+D 複製', async ({ page }) => {
+    await open(page)
+    await shape(page, 'star')
+    await expect(itemCount(page)).toHaveCount(1)
+    await page.keyboard.press('Control+d')
+    await expect(itemCount(page)).toHaveCount(2)
+    await page.keyboard.press('Control+z')
+    await expect(itemCount(page)).toHaveCount(1)
+    await page.keyboard.press('Control+Shift+z')
+    await expect(itemCount(page)).toHaveCount(2)
+    await page.keyboard.press('Control+y') // 沒有可以重做的了，不會出事
+    await expect(itemCount(page)).toHaveCount(2)
+  })
+
+  test('選到的東西按 Delete 刪掉（可以拿回來）', async ({ page }) => {
+    await open(page)
+    await shape(page, 'star')
+    await page.keyboard.press('Delete')
+    await expect(itemCount(page)).toHaveCount(0)
+    await expect(page.getByTestId('removed-note')).toBeVisible()
+  })
+
+  test('在輸入框裡按 Ctrl+Z 是復原打的字，不會把整個設計復原', async ({ page }) => {
+    await open(page)
+    const t = await addText(page)
+    await t.focus()
+    await page.keyboard.press('Control+z')
+    await expect(itemCount(page)).toHaveCount(1)
+  })
+
+  test('滑鼠移到物件上游標變成移動、移到把手上變成縮放', async ({ page }) => {
+    await open(page)
+    await shape(page, 'rect')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })
+    const r = (await rectOf(page, 'item-1'))!
+    await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2)
+    await expect(page.getByTestId('stage')).toHaveCSS('cursor', 'move')
+    const h = (await page.getByTestId('handle-resize').nth(2).boundingBox())!
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2)
+    await expect(page.getByTestId('stage')).toHaveCSS('cursor', 'nwse-resize')
+    const stage = (await box(page, 'stage'))
+    await page.mouse.move(stage.x + 5, stage.y + 5)
+    await expect(page.getByTestId('stage')).toHaveCSS('cursor', 'default')
+  })
+})

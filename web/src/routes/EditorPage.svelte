@@ -63,6 +63,7 @@
   import { applyTemplate, TEMPLATES } from '../lib/templates'
   import { fitImageSizeCm } from '../lib/fitSize'
   import { FONT_FILES } from '../lib/fonts'
+  import type { FontManager } from '../lib/fontManager'
   import { History } from '../lib/history'
   import type { HoopInput, HoopStore } from '../lib/hoops'
   import { dataUrlToBytes, fileFromBytes, loadImage, stemOf, type LoadedImage } from '../lib/imageInput'
@@ -81,12 +82,14 @@
 
   let {
     client,
+    fonts,
     store,
     prefs,
     formats,
     onTry,
   }: {
     client: CoreClient
+    fonts: FontManager
     store: HoopStore
     prefs: Prefs
     formats: OutputFormatInfo[]
@@ -199,6 +202,25 @@
   function pickImage(forItem?: string) {
     replacing = forItem ?? null
     fileInput?.click()
+  }
+
+  // ── 字型：按需下載 ──
+  let fontTick = $state(0)
+  $effect(() => fonts.onChange(() => fontTick++))
+  const fontStatus = (id: string) => (void fontTick, fonts.status(id))
+  let fontProblem = $state<UserMessage | null>(null)
+
+  async function chooseFont(itemId: string, fontId: string) {
+    fontProblem = null
+    if (await fonts.ensure(fontId)) {
+      patch(itemId, { fontId } as Partial<EditorItem>)
+    } else {
+      fontProblem = {
+        code: 'font_offline',
+        text: strings.editor.fontOffline(strings.fonts[fontId as keyof typeof strings.fonts] ?? fontId),
+        hint: strings.editor.fontOfflineHint,
+      }
+    }
   }
 
   // ── 加東西、改東西 ──
@@ -314,7 +336,20 @@
     computing = true
     const timer = setTimeout(async () => {
       try {
-        const r = await client.buildCompositePreview(request, images)
+        // 用到的字型還沒下載就先下載；下載不了（沒網路）的，先用黑體顯示並說明
+        const wanted = [...new Set(request.items.flatMap((i) => (i.kind === 'text' ? [i.font_id] : [])))]
+        const ready = await fonts.ensureMany(wanted)
+        const missing = wanted.filter((id) => !ready[id])
+        const req = missing.length
+          ? { ...request, items: request.items.map((i) => (i.kind === 'text' && missing.includes(i.font_id) ? { ...i, font_id: 'sans' } : i)) }
+          : request
+        const r = await client.buildCompositePreview(req, images)
+        if (missing.length) {
+          r.preview.adjustments = [
+            ...missing.map((id) => ({ code: 'font_fallback', text: strings.editor.fontFallback(strings.fonts[id as keyof typeof strings.fonts] ?? id), hint: null })),
+            ...r.preview.adjustments,
+          ]
+        }
         if (mine === token) result = r
       } finally {
         if (mine === token) computing = false
@@ -840,10 +875,18 @@
                   role="radio"
                   aria-checked={it.fontId === f.id}
                   class:on={it.fontId === f.id}
-                  onclick={() => patch(it.id, { fontId: f.id })}
-                >{strings.fonts[f.id]}</button>
+                  onclick={() => chooseFont(it.id, f.id)}
+                  data-testid="font-{f.id}"
+                >
+                  {strings.fonts[f.id]}
+                  {#if fontStatus(f.id) !== 'ready'}
+                    <small>{fontStatus(f.id) === 'loading' ? strings.editor.fontLoading : fontStatus(f.id) === 'failed' ? strings.editor.fontFailed : strings.editor.fontNeedsDownload}</small>
+                  {/if}
+                </button>
               {/each}
             </div>
+
+            {#if fontProblem}<Notice message={fontProblem} tone="warn" />{/if}
 
             <h3>{strings.editor.curve}</h3>
             <div class="size">
@@ -1203,6 +1246,7 @@
   .muted { color: var(--muted); margin: 8px 0 0; font-size: 0.92em; }
   .chips { display: flex; gap: 10px; flex-wrap: wrap; }
   .chips button { min-height: 56px; min-width: 80px; padding: 6px 16px; border: 2px solid var(--line); border-radius: 12px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .chips button small { font-size: 0.7em; color: var(--muted); font-weight: 400; }
   .chips button.on { border-color: var(--accent); background: #fdecec; font-weight: 700; }
   .size { display: flex; align-items: center; gap: 12px; }
   .size input { flex: 1; height: 48px; accent-color: var(--accent); }

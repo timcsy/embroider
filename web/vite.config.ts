@@ -2,6 +2,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { FONT_FILES } from './src/lib/fonts.ts'
 
 export default defineConfig({
   // 相對路徑：放在任何子路徑（例如 GitHub Pages）都能運作
@@ -33,6 +34,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,wasm,svg,png,ttf,webmanifest}'],
+        // 只有基本字型跟著程式預先快取；其他字型第一次用到才下載，下載後由下面的規則留住，之後離線也能用
+        globIgnores: FONT_FILES.filter((f) => !f.preload).map((f) => `**/fonts/${f.file}`),
+        runtimeCaching: [
+          {
+            urlPattern: /\.ttf$/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'fonts-on-demand', cacheableResponse: { statuses: [0, 200] } },
+          },
+        ],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
       },

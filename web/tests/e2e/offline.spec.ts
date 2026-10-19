@@ -19,7 +19,7 @@ async function waitUntilCached(page: Page) {
         }),
       { timeout: 60_000 },
     )
-    .toBeGreaterThanOrEqual(15)
+    .toBeGreaterThanOrEqual(10)
 }
 
 test('可以加到主畫面：有 manifest，名稱與圖示是繁體中文應用程式', async ({ page, request }) => {

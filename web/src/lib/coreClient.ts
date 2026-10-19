@@ -2,6 +2,7 @@
 // 測試或不支援 Worker 時用直接呼叫版，介面完全相同。
 import * as core from './core'
 import { FONT_FILES } from './fonts'
+import type { HoopValidation } from './types'
 import type {
   CompositeRequest,
   CompositeResult,
@@ -21,6 +22,8 @@ export interface CoreClient {
   buildTextPreview(req: TextRequest): Promise<PreviewResult>
   buildImagePreview(req: ImageRequest, rgba: Uint8Array): Promise<PreviewResult>
   buildCompositePreview(req: CompositeRequest, images: Uint8Array[]): Promise<CompositeResult>
+  /** 把下載好的字型交給核心（之後文字才能用這個字型）。 */
+  registerFont(id: string, name: string, bytes: Uint8Array): Promise<HoopValidation>
   suggestColorCount(rgba: Uint8Array, width: number, height: number): Promise<number>
   encodeAll(
     plan: StitchPlan,
@@ -40,7 +43,7 @@ export interface DirectOptions {
 async function boot(opts: DirectOptions): Promise<void> {
   if (opts.wasm) core.initCoreSync(opts.wasm)
   else await core.initCore()
-  for (const f of FONT_FILES) {
+  for (const f of FONT_FILES.filter((x) => x.preload)) {
     const r = core.registerFont(f.id, f.id, await opts.loadFont(f.file))
     if (!r.ok) throw new Error(r.message?.text ?? '字型載入失敗')
   }
@@ -58,6 +61,7 @@ export function createDirectClient(opts: DirectOptions): CoreClient {
     buildTextPreview: async (req) => (await ready, core.buildTextPreview(req)),
     buildImagePreview: async (req, rgba) => (await ready, core.buildImagePreview(req, rgba)),
     buildCompositePreview: async (req, images) => (await ready, core.buildCompositePreview(req, images)),
+    registerFont: async (id, name, bytes) => (await ready, core.registerFont(id, name, bytes)),
     suggestColorCount: async (rgba, w, h) => (await ready, core.suggestColorCount(rgba, w, h)),
     encodeAll: async (plan, hoop, ids, name, seq) =>
       (await ready, core.encodeAll(plan, hoop, ids, name, seq)),
@@ -117,6 +121,7 @@ export function createWorkerClient(): CoreClient {
     buildTextPreview: (req) => call('buildTextPreview', [req]),
     buildImagePreview: (req, rgba) => call('buildImagePreview', [req, rgba]),
     buildCompositePreview: (req, images) => call('buildCompositePreview', [req, images]),
+    registerFont: (id, name, bytes) => call('registerFont', [id, name, bytes]),
     suggestColorCount: (rgba, w, h) => call('suggestColorCount', [rgba, w, h]),
     encodeAll: (plan, hoop, ids, name, seq) => call('encodeAll', [plan, hoop, ids, name, seq]),
   }

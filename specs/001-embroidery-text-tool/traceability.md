@@ -49,6 +49,7 @@
 | 弧形文字 | ✅ | `compose.rs`（拱形與笑臉形兩端高低）、`e2e/editor-flow` | 彎得很大時字的間距看起來是否舒服 🧑 |
 | 手繪（抹順、粗細、封閉填滿） | ✅ | `compose.rs`、`web/editor.test.ts`、`e2e/editor-flow` | 平針與緞面的實繡效果 🧑 |
 | 畫布放大平移、拖動時即時數字、對齊參考線與吸附、鎖定、多選（Shift 加選、框選、多選模式）、對齊與等距與同樣大小、綁成一組 | ✅ | `web/geometry.test.ts`、`web/editor.test.ts`、`e2e/editor-flow`（含真的雙指觸控事件） | 真機上的手感 🧑 |
+| 字型按需下載（只預載黑體、選了才下載、下載失敗退回黑體並說明、下載後離線可用）、起手式範本 | ✅ | `web/font-manager.test.ts`、`web/font-fetch.test.ts`、`web/templates.test.ts`、`e2e/fonts-on-demand`、`e2e/editor-flow`（範本） | 真機上的離線行為 🧑 |
 | 做到一半自動儲存、重開接著做、全部清掉可用上一步拿回 | ✅ | `web/designs.test.ts`（存、讀、覆蓋、清掉、不混進最近清單）、`e2e/editor-flow`（重新整理後還在、圖片設計也能接著做） | 手機把瀏覽器關掉後的行為與重新整理相同，真機上確認 🧑 |
 | 電腦版：上方工具列（加東西、上一步、存檔）、畫布與工具區各自捲動、整頁不捲、鍵盤快捷鍵（Ctrl+Z／Shift+Z／Y／D、Delete）、游標隨位置變化 | ✅ | `e2e/editor-flow`（電腦版 1440×900 四個測試） | 實機的滑鼠手感 🧑 |
 | 手機、平板直放、平板橫放、電腦版面與按鈕夠大 | ✅ | `e2e/editor-flow`（四種視窗：無橫向捲動、所有按鈕高度 ≥44px） | 真實裝置 🧑 |

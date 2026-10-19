@@ -2,6 +2,9 @@
   import { pageFontsBase } from './lib/assets'
   import * as core from './lib/core'
   import { createDirectClient, createWorkerClient, type CoreClient } from './lib/coreClient'
+  import { createFontManager, type FontManager } from './lib/fontManager'
+  import { fetchFontBytes } from './lib/fontFetch'
+  import { FONT_FILES, PRELOADED_FONTS } from './lib/fonts'
   import { createHoopStore, type HoopStore } from './lib/hoops'
   import { createPrefs, type Prefs } from './lib/prefs'
   import { strings } from './lib/strings.zh-TW'
@@ -19,6 +22,7 @@
   const client = makeClient()
 
   interface Ready {
+    fonts: FontManager
     store: HoopStore
     prefs: Prefs
     formats: OutputFormatInfo[]
@@ -27,7 +31,15 @@
   // 重運算（預覽、輸出）在 Worker；繡框驗證這類小函式在主執行緒也載入一份核心
   const boot: Promise<Ready> = Promise.all([client.ready, core.initCore()]).then(() => {
     const formats = core.listFormats()
+    // 基本字型開機就載入；其他字型第一次用到才下載（下載過的，瀏覽器會留著，之後離線也能用）
+    const fonts = createFontManager({
+      fonts: FONT_FILES,
+      preloaded: PRELOADED_FONTS,
+      fetchFont: (file) => fetchFontBytes(`${pageFontsBase()}${file}`),
+      registerFont: (id, name, bytes) => client.registerFont(id, name, bytes),
+    })
     return {
+      fonts,
       store: createHoopStore(core.listBuiltinHoops(), core.validateHoop),
       prefs: createPrefs(formats.map((f) => f.id)),
       formats,
@@ -42,7 +54,7 @@
 {:then ready}
   <!-- 切換畫面時不卸載編輯頁，這樣回來時做到一半的設計與復原紀錄都還在 -->
   <div hidden={screen !== 'text'}>
-    <EditorPage {client} store={ready.store} prefs={ready.prefs} formats={ready.formats} onTry={() => (screen = 'try')} />
+    <EditorPage {client} fonts={ready.fonts} store={ready.store} prefs={ready.prefs} formats={ready.formats} onTry={() => (screen = 'try')} />
   </div>
   {#if screen === 'try'}
     <TryOnMachine formats={ready.formats} prefs={ready.prefs} onBack={() => (screen = 'text')} />

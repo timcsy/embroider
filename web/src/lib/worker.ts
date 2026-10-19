@@ -4,7 +4,7 @@ import { FONT_FILES } from './fonts'
 
 async function boot(fontsBase: string) {
   await core.initCore()
-  for (const f of FONT_FILES) {
+  for (const f of FONT_FILES.filter((x) => x.preload)) {
     const res = await fetch(`${fontsBase}${f.file}`)
     if (!res.ok) throw new Error(`字型載入失敗：${f.file}`)
     const r = core.registerFont(f.id, f.id, new Uint8Array(await res.arrayBuffer()))
@@ -29,6 +29,7 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
   buildTextPreview: core.buildTextPreview,
   buildImagePreview: core.buildImagePreview,
   buildCompositePreview: core.buildCompositePreview,
+  registerFont: core.registerFont,
   suggestColorCount: core.suggestColorCount,
   encodeAll: core.encodeAll,
 }

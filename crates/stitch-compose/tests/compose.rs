@@ -808,3 +808,76 @@ fn 文字壓在文字上也提醒一次就好() {
         1
     );
 }
+
+fn elapsed_ms(items: Vec<Item>, images: &[Vec<u8>]) -> u128 {
+    let t = std::time::Instant::now();
+    let r = build_composite(&fonts(), &req(items, "b70-large"), images);
+    eprintln!(
+        "耗時 {:?} blocked={:?}",
+        t.elapsed(),
+        r.preview.blocked.as_ref().map(|m| &m.code)
+    );
+    t.elapsed().as_millis()
+}
+
+#[test]
+#[ignore = "量測用：cargo test --release -- --ignored --nocapture"]
+fn 量測_二十四個愛心() {
+    let items: Vec<Item> = (0..24)
+        .map(|i| {
+            let mut c = circle(
+                &format!("h{i}"),
+                150.0,
+                (i % 6) as f64 * 200.0 - 500.0,
+                (i / 6) as f64 * 200.0 - 300.0,
+            );
+            if let Content::Shape { shape, .. } = &mut c.content {
+                *shape = ShapeKind::Heart;
+            }
+            c
+        })
+        .collect();
+    elapsed_ms(items, &[]);
+}
+
+#[test]
+#[ignore = "量測用"]
+fn 量測_十二個同一張圖() {
+    let rgba = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../stitch-image/tests/fixtures/thanks-256.rgba"),
+    )
+    .unwrap();
+    let items: Vec<Item> = (0..12)
+        .map(|i| Item {
+            id: format!("i{i}"),
+            content: Content::Image {
+                image: 0,
+                width: 256,
+                height: 171,
+                color_count: 5,
+                simplify: 40,
+                size: 400.0,
+            },
+            x: (i % 4) as f64 * 350.0 - 500.0,
+            y: (i / 4) as f64 * 250.0 - 300.0,
+            rotation: 0.0,
+            scale: 1.0,
+            flip_x: false,
+            flip_y: false,
+        })
+        .collect();
+    elapsed_ms(items, std::slice::from_ref(&rgba));
+}
+
+#[test]
+#[ignore = "量測用"]
+fn 量測_五千點的長手繪() {
+    let pts: Vec<[f64; 2]> = (0..5000)
+        .map(|i| {
+            let a = i as f64 * 0.01;
+            [a.cos() * (100.0 + a * 4.0), a.sin() * (100.0 + a * 4.0)]
+        })
+        .collect();
+    elapsed_ms(vec![draw(vec![pts], 25.0, false)], &[]);
+}

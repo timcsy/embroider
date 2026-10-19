@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
+  buildCompositePreview,
   buildImagePreview,
   buildTextPreview,
   initCoreSync,
@@ -107,6 +108,83 @@ describe('效能預算', { retry: 2 }, () => {
     const [r, ms] = time(() => buildImagePreview(req, rgba))
     console.log('512 插畫轉換耗時 ms', Math.round(ms), JSON.stringify(r.blocked))
     expect(r.blocked).toBeNull()
+    expect(ms).toBeLessThan(IMAGE_BUDGET_MS * 2)
+  })
+
+  // 編輯器：每次拖動都會重算整個設計，物件多的時候也要夠快
+  const shapeItem = (i: number, shape: 'heart' | 'circle' = 'heart') => ({
+    id: `s${i}`,
+    kind: 'shape' as const,
+    shape,
+    width: 150,
+    height: 150,
+    color,
+    filled: true,
+    line_width: 25,
+    x: (i % 6) * 200 - 500,
+    y: Math.floor(i / 6) * 200 - 300,
+    rotation: 0,
+    scale: 1,
+    flip_x: false,
+    flip_y: false,
+  })
+
+  it('編輯器：二十四個形狀在預算內', () => {
+    const request = { items: Array.from({ length: 24 }, (_, i) => shapeItem(i)), hoop: hoop() }
+    buildCompositePreview(request, [])
+    const [r, ms] = time(() => buildCompositePreview(request, []))
+    expect(r.preview.blocked, JSON.stringify(r.preview.blocked)).toBeNull()
+    expect(ms).toBeLessThan(IMAGE_BUDGET_MS)
+  })
+
+  it('編輯器：一千個點的手繪線在預算內', () => {
+    const pts: [number, number][] = Array.from({ length: 1000 }, (_, i) => {
+      const a = i * 0.03
+      return [Math.cos(a) * (100 + a * 8), Math.sin(a) * (100 + a * 8)]
+    })
+    const item = {
+      id: 'd',
+      kind: 'draw' as const,
+      strokes: [pts],
+      width: 25,
+      color,
+      filled: false,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      scale: 1,
+      flip_x: false,
+      flip_y: false,
+    }
+    const request = { items: [item], hoop: hoop() }
+    buildCompositePreview(request, [])
+    const [r, ms] = time(() => buildCompositePreview(request, []))
+    expect(r.preview.blocked, JSON.stringify(r.preview.blocked)).toBeNull()
+    expect(ms).toBeLessThan(IMAGE_BUDGET_MS)
+  })
+
+  it('編輯器：同一張插畫放六份，第二次起（圖片轉換有快取）在預算內', () => {
+    const rgba = new Uint8Array(readFileSync(resolve(__dirname, '../../crates/stitch-image/tests/fixtures/thanks-256.rgba')))
+    const images = Array.from({ length: 6 }, (_, i) => ({
+      id: `i${i}`,
+      kind: 'image' as const,
+      image: 0,
+      width: 256,
+      height: 171,
+      color_count: 5,
+      simplify: 40,
+      size: 400,
+      x: (i % 3) * 400 - 400,
+      y: Math.floor(i / 3) * 300 - 150,
+      rotation: 0,
+      scale: 1,
+      flip_x: false,
+      flip_y: false,
+    }))
+    const request = { items: images, hoop: hoop() }
+    buildCompositePreview(request, [rgba]) // 第一次要轉圖，不算
+    const [r, ms] = time(() => buildCompositePreview(request, [rgba]))
+    expect(r.preview.blocked, JSON.stringify(r.preview.blocked)).toBeNull()
     expect(ms).toBeLessThan(IMAGE_BUDGET_MS * 2)
   })
 })

@@ -137,21 +137,56 @@
     zm = { z: 1, px: 0, py: 0 }
   })
 
+  // 畫面只在每一幀畫一次：同一幀內改了很多次，只畫最後那一次。
+  // 另外，只有大小真的變了才重設畫布的大小——每次設定寬高都會清掉並重新配置整張畫布，拖動時每一幀都這樣會很卡。
+  let drawFrame = 0
+  let latestDraw: (() => void) | null = null
+  function scheduleDraw(fn: () => void) {
+    latestDraw = fn
+    if (drawFrame) return
+    drawFrame = requestAnimationFrame(() => {
+      drawFrame = 0
+      const run = latestDraw
+      latestDraw = null
+      run?.()
+    })
+  }
+
   $effect(() => {
     if (!canvas) return
+    const cv = canvas
     const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.round(width * dpr)
-    canvas.height = Math.round(height * dpr)
-    const ctx = canvas.getContext('2d')
+    const pw = Math.round(width * dpr)
+    const ph = Math.round(height * dpr)
+    // 在這裡讀取所有會影響畫面的狀態，這樣它們一變就會重畫
+    const snapshot = { items, computed, layers, stale, plan, hoop, fit, view, width, height }
+    scheduleDraw(() => draw(cv, dpr, pw, ph, snapshot))
+  })
+  $effect(() => () => {
+    if (drawFrame) cancelAnimationFrame(drawFrame)
+  })
+
+  function draw(
+    cv: HTMLCanvasElement,
+    dpr: number,
+    pw: number,
+    ph: number,
+    snap: { items: EditorItem[]; computed: Record<string, Placement>; layers: ItemLayer[]; stale: boolean; plan: StitchPlan | null; hoop: Hoop; fit: number; view: typeof view; width: number; height: number },
+  ) {
+    if (cv.width !== pw || cv.height !== ph) {
+      cv.width = pw
+      cv.height = ph
+    }
+    const ctx = cv.getContext('2d')
     if (!ctx) return
+    const { items, computed, layers, stale, plan, hoop, fit, view, width, height } = snap
     // 重新計算的途中（或物件已經被拖到別的位置、結果還沒回來）：用各物件的舊針跡直接變形，畫面立刻跟著手指走
     const moved = items.some((it) => {
       const o = computed[it.id]
       return o && (o.x !== it.x || o.y !== it.y || o.scale !== it.scale || o.rotation !== it.rotation)
     })
     if (layers.length > 0 && (stale || moved)) {
-      const dprNow = dpr
-      const maps = ensureBitmaps(dprNow)
+      const maps = ensureBitmaps(dpr)
       const placements: BitmapPlacement[] = []
       const slow: LayerDraw[] = []
       for (const l of layers) {
@@ -181,7 +216,7 @@
     } else {
       drawPreview(ctx, plan, hoop, width, height, dpr, undefined, view)
     }
-  })
+  }
 
   // 各物件的針跡圖：結果一回來就在空檔先畫好，拖動時只搬圖、不重畫幾千條針
   let bitmapCache: { layers: ItemLayer[]; scale: number; dpr: number; maps: Map<string, LayerBitmap> } | null = null

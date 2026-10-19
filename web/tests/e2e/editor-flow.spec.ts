@@ -1144,11 +1144,11 @@ test('拖動過程中預覽先跟著手指走，放開後才重新計算一次',
     const w = window as unknown as { __posts: number }
     w.__posts = 0
     const orig = Worker.prototype.postMessage
-    Worker.prototype.postMessage = function (...args: Parameters<typeof orig>) {
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
       const m = args[0] as { method?: string } | undefined
       if (m?.method === 'buildCompositePreview') w.__posts++
-      return orig.apply(this, args)
-    }
+      return (orig as (...a: unknown[]) => void).apply(this, args)
+    } as typeof Worker.prototype.postMessage
   })
   const r = (await rectOf(page, 'item-1'))!
   const cx = r.x + r.width / 2
@@ -1160,4 +1160,72 @@ test('拖動過程中預覽先跟著手指走，放開後才重新計算一次',
   expect(during).toBe(0)
   await page.mouse.up()
   await expect.poll(() => page.evaluate(() => (window as unknown as { __posts: number }).__posts), { timeout: 10_000 }).toBe(1)
+})
+
+test.describe('流暢度（畫面更新的速度）', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, hasTouch: false, isMobile: false })
+
+  async function measure(page: Page, act: () => Promise<void>) {
+    await page.evaluate(() => {
+      const w = window as unknown as { __f: number[]; __raf: number }
+      w.__f = []
+      let last = performance.now()
+      const tick = (t: number) => {
+        w.__f.push(t - last)
+        last = t
+        w.__raf = requestAnimationFrame(tick)
+      }
+      w.__raf = requestAnimationFrame(tick)
+    })
+    await act()
+    return page.evaluate(() => {
+      const w = window as unknown as { __f: number[]; __raf: number }
+      cancelAnimationFrame(w.__raf)
+      const f = w.__f.slice().sort((a, b) => a - b)
+      return { avg: w.__f.reduce((a, b) => a + b, 0) / w.__f.length, worst: f[f.length - 1] ?? 0, n: f.length }
+    })
+  }
+
+  test('拖動插畫：平均每一幀不超過 30 毫秒，最慢的一幀不超過 300 毫秒', async ({ page }) => {
+    await open(page)
+    await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+    await page.waitForTimeout(800)
+    const r = (await rectOf(page, 'item-1'))!
+    const cx = r.x + r.width / 2
+    const cy = r.y + r.height / 2
+    const m = await measure(page, async () => {
+      await page.mouse.move(cx, cy)
+      await page.mouse.down()
+      for (let i = 1; i <= 40; i++) {
+        await page.mouse.move(cx + i, cy + i / 2)
+        await page.waitForTimeout(8)
+      }
+      await page.mouse.up()
+      await page.waitForTimeout(500)
+    })
+    expect(m.n).toBeGreaterThan(20)
+    expect(m.avg).toBeLessThan(30)
+    expect(m.worst).toBeLessThan(300)
+  })
+
+  test('拉「大小」滑桿：畫面一路順暢', async ({ page }) => {
+    await open(page)
+    await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+    await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+    await page.waitForTimeout(800)
+    const sb = (await page.getByRole('slider', { name: '圖的大小' }).boundingBox())!
+    const m = await measure(page, async () => {
+      await page.mouse.move(sb.x + sb.width * 0.3, sb.y + sb.height / 2)
+      await page.mouse.down()
+      for (let i = 0; i <= 40; i++) {
+        await page.mouse.move(sb.x + sb.width * (0.3 + i * 0.005), sb.y + sb.height / 2)
+        await page.waitForTimeout(8)
+      }
+      await page.mouse.up()
+      await page.waitForTimeout(600)
+    })
+    expect(m.avg).toBeLessThan(30)
+    expect(m.worst).toBeLessThan(300)
+  })
 })

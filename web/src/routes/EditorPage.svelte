@@ -371,9 +371,10 @@
   $effect(() => runner.onBusyChange(() => (computing = runner.busy())))
 
   $effect(() => {
+    // 手指按著的時候什麼都不算（連組請求都省了）；放開後這個函式會重新執行
+    if (gesturing) return
     const d = doc
     const { request, images } = toRequest(d, hoop, sources)
-    if (gesturing) return
     if (request.items.length === 0) {
       epoch++
       runner.cancel()
@@ -733,7 +734,12 @@
   </div>
 {/snippet}
 
-<svelte:window bind:innerWidth={winW} onkeydown={onShortcut} />
+<svelte:window
+  bind:innerWidth={winW}
+  onkeydown={onShortcut}
+  onpointerup={() => (gesturing = false)}
+  onpointercancel={() => (gesturing = false)}
+/>
 
 <main>
   <header>
@@ -1095,6 +1101,7 @@
                 step={range.step}
                 value={Math.min(range.max, Math.max(range.min, base * it.scale))}
                 aria-label={it.kind === 'text' ? strings.text.size : it.kind === 'image' ? strings.image.size : strings.editor.size}
+                onpointerdown={() => (gesturing = true)}
                 oninput={(e) => patch(it.id, { scale: Number(e.currentTarget.value) / base }, 'size')}
               />
               <output>{(base * it.scale).toFixed(1)} {strings.editor.sizeUnit}</output>

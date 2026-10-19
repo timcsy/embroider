@@ -14,6 +14,8 @@ export class History<T> {
   private index = 0
   private lastKey: string | undefined
   private lastTime = -Infinity
+  /** 目前這一步的 JSON（比較用）；快取起來，免得每次修改都要把整份設計轉兩次 */
+  private currentJson: string | null = null
 
   constructor(
     initial: T,
@@ -33,7 +35,9 @@ export class History<T> {
   }
 
   push(value: T, opts: PushOptions = {}): void {
-    if (JSON.stringify(value) === JSON.stringify(this.current)) return
+    const json = JSON.stringify(value)
+    this.currentJson ??= JSON.stringify(this.current)
+    if (json === this.currentJson) return
     const now = opts.now ?? Date.now()
     const merge =
       opts.coalesce !== undefined &&
@@ -41,6 +45,7 @@ export class History<T> {
       now - this.lastTime < COALESCE_WINDOW_MS &&
       this.index > 0
     this.stack.length = this.index + 1 // 丟掉重做的部分
+    this.currentJson = json
     if (merge) {
       this.stack[this.index] = value
     } else {
@@ -58,12 +63,14 @@ export class History<T> {
   undo(): T {
     if (this.canUndo) this.index--
     this.lastKey = undefined
+    this.currentJson = null
     return this.current
   }
 
   redo(): T {
     if (this.canRedo) this.index++
     this.lastKey = undefined
+    this.currentJson = null
     return this.current
   }
 }

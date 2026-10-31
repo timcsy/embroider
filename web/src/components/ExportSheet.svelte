@@ -4,18 +4,14 @@
   let {
     designName,
     fileNames,
-    firstTime,
     canShare,
     onShare,
-    onTry,
     onClose,
   }: {
     designName: string
     fileNames: string[]
-    firstTime: boolean
     canShare: boolean
     onShare: () => void
-    onTry: () => void
     onClose: () => void
   } = $props()
 </script>
@@ -24,9 +20,6 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="export-title" data-testid="export-sheet">
     <h2 id="export-title">{strings.export.title}</h2>
     <p>{strings.export.intro}</p>
-    {#if firstTime}
-      <p class="first" data-testid="first-time">{strings.export.firstTime}</p>
-    {/if}
     <p class="small">{strings.export.downloadHint}</p>
     <h3>{strings.export.nameMap}</h3>
     <ul>
@@ -38,9 +31,6 @@
       <p class="small">{strings.export.shareNote}</p>
       <button class="secondary" onclick={onShare} data-testid="share">{strings.export.share}</button>
     {/if}
-    {#if firstTime}
-      <button class="secondary" onclick={onTry} data-testid="try-next">{strings.export.tryNext}</button>
-    {/if}
     <button class="primary" onclick={onClose}>{strings.export.done}</button>
   </div>
 </div>
@@ -51,7 +41,6 @@
   h2 { margin: 0 0 8px; font-size: 1.3em; }
   h3 { margin: 14px 0 6px; font-size: 1em; }
   p { margin: 6px 0; }
-  .first { background: var(--info-bg); border-radius: 10px; padding: 10px 12px; }
   .small { color: var(--muted); font-size: 0.9em; }
   ul { list-style: none; padding: 0; margin: 0 0 16px; }
   li { padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }

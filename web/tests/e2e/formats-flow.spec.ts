@@ -23,16 +23,6 @@ test('存檔只輸出 DST，檔名是機器安全的（大寫英數、主檔名�
   expect(names[0]).toMatch(/^[A-Z0-9]{1,8}\.DST$/)
 })
 
-test('「全部都存」也只有 DST', async ({ page }) => {
-  const names = collectDownloads(page)
-  const box = await ready(page)
-  await box.fill('Amy')
-  await expect(page.getByTestId('save-all')).toBeEnabled({ timeout: 30_000 })
-  await page.getByTestId('save-all').click()
-  await expect.poll(() => names.length, { timeout: 15_000 }).toBe(1)
-  expect(names[0]).toMatch(/\.DST$/)
-})
-
 test('連續存兩次，檔名的序號會遞增', async ({ page }) => {
   const names = collectDownloads(page)
   const box = await ready(page)

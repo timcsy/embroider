@@ -11,7 +11,6 @@
   import { strings } from './lib/strings.zh-TW'
   import type { OutputFormatInfo } from './lib/types'
   import EditorPage from './routes/EditorPage.svelte'
-  import TryOnMachine from './routes/TryOnMachine.svelte'
 
   function makeClient(): CoreClient {
     if (typeof Worker !== 'undefined') return createWorkerClient()
@@ -47,7 +46,6 @@
     }
   })
 
-  let screen = $state<'text' | 'try'>('text')
 
   // 新版本：下載好了就通知；沒有做到一半的東西時直接自動更新（不然使用者開著的一直是舊版）
   let updateReady = $state(updater?.available() ?? false)
@@ -68,13 +66,7 @@
 {#await boot}
   <p class="status" role="status">{strings.loading}</p>
 {:then ready}
-  <!-- 切換畫面時不卸載編輯頁，這樣回來時做到一半的設計與復原紀錄都還在 -->
-  <div hidden={screen !== 'text'}>
-    <EditorPage {client} fonts={ready.fonts} store={ready.store} prefs={ready.prefs} formats={ready.formats} onTry={() => (screen = 'try')} onWork={(w) => (hasWork = w)} />
-  </div>
-  {#if screen === 'try'}
-    <TryOnMachine formats={ready.formats} prefs={ready.prefs} onBack={() => (screen = 'text')} />
-  {/if}
+  <EditorPage {client} fonts={ready.fonts} store={ready.store} prefs={ready.prefs} formats={ready.formats} onWork={(w) => (hasWork = w)} />
 {:catch}
   <p class="status" role="alert">{strings.loadFailed}</p>
 {/await}

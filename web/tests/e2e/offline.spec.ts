@@ -40,7 +40,7 @@ test('可以加到主畫面：有 manifest，名稱與圖示是繁體中文應�
   )
 })
 
-test('載入一次後斷網：打字、預覽、存出都能做，自訂的框與預設格式仍在', async ({ page, context }) => {
+test('載入一次後斷網：打字、預覽、存出都能做，自訂的框仍在', async ({ page, context }) => {
   const downloads: string[] = []
   page.on('download', (d) => downloads.push(d.suggestedFilename()))
 
@@ -55,9 +55,6 @@ test('載入一次後斷網：打字、預覽、存出都能做，自訂的框�
   await form.getByLabel('可以繡的寬（公釐）').fill('100')
   await form.getByLabel('可以繡的高（公釐）').fill('100')
   await page.getByTestId('hoop-save').click()
-  await page.getByTestId('try-entry').click()
-  await page.getByTestId('choose-dst').click()
-  await page.getByRole('button', { name: /回去繼續做/ }).click()
 
   // 斷網後重新整理
   await context.setOffline(true)
@@ -72,7 +69,6 @@ test('載入一次後斷網：打字、預覽、存出都能做，自訂的框�
   await page.reload()
   const box = await ready(page)
   await expect(page.getByRole('radio', { name: /離線測試框/ })).toBeVisible()
-  await expect(page.getByTestId('default-note')).toContainText('通用格式 A')
 
   await box.fill('Amy')
   await expect(page.getByTestId('size')).toBeVisible({ timeout: 30_000 })

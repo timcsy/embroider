@@ -70,7 +70,7 @@
   import { History } from '../lib/history'
   import type { HoopInput, HoopStore } from '../lib/hoops'
   import { dataUrlToBytes, fileFromBytes, loadImage, stemOf, type LoadedImage } from '../lib/imageInput'
-  import { formatsToExport, type Prefs } from '../lib/prefs'
+  import type { Prefs } from '../lib/prefs'
   import { canShareFiles, shareFiles } from '../lib/share'
   import { strings } from '../lib/strings.zh-TW'
   import { THREADS } from '../lib/threads'
@@ -89,7 +89,6 @@
     store,
     prefs,
     formats,
-    onTry,
     onWork = () => {},
   }: {
     client: CoreClient
@@ -97,7 +96,6 @@
     store: HoopStore
     prefs: Prefs
     formats: OutputFormatInfo[]
-    onTry: () => void
     /** 有沒有做到一半的東西（有的話，新版本不能擅自更新） */
     onWork?: (has: boolean) => void
   } = $props()
@@ -542,23 +540,22 @@
   // ── 存檔 ──
   let saving = $state(false)
   let failure = $state<UserMessage | null>(null)
-  let exported = $state<{ name: string; files: EncodedFile[]; firstTime: boolean } | null>(null)
+  let exported = $state<{ name: string; files: EncodedFile[] } | null>(null)
 
-  async function save(mode: 'default' | 'all') {
+  async function save() {
     if (!plan || !canSave || saving) return
     saving = true
     failure = null
     try {
-      const firstTime = prefs.isFirstTime || mode === 'all'
       const name = designName()
-      const out = await client.encodeAll(plan, hoop, formatsToExport(prefs.defaultFormats, mode), name, nextSequence())
+      const out = await client.encodeAll(plan, hoop, [], name, nextSequence())
       if (out.error || !out.files) {
         failure = out.error
         return
       }
       await downloadFiles(out.files)
       void rememberCurrent()
-      exported = { name, files: out.files, firstTime: firstTime && prefs.isFirstTime }
+      exported = { name, files: out.files }
     } finally {
       saving = false
     }
@@ -569,16 +566,6 @@
     const r = await shareFiles(exported.files)
     if (!r.ok && !r.cancelled) failure = r.message
   }
-
-  // prefs 不是響應式的，訂閱它的變更通知來更新「目前預設」
-  let prefsVersion = $state(0)
-  $effect(() => prefs.onChange(() => prefsVersion++))
-
-  const defaultLabel = $derived.by(() => {
-    void prefsVersion
-    const names = formats.filter((f) => prefs.defaultFormats.includes(f.id)).map((f) => f.label)
-    return names.length === 0 ? strings.export.defaultAll : strings.export.currentDefault(names.join('、'))
-  })
 
   // ── 繡框的新增、修改、刪除 ──
   let editing = $state<{ hoop?: Hoop } | null>(null)
@@ -740,10 +727,9 @@
 
 {#snippet saveBar()}
   <div class="save" class:bar={wide}>
-    <button class="primary" onclick={() => save('default')} disabled={!canSave || saving || computing} data-testid="save">
+    <button class="primary" onclick={() => save()} disabled={!canSave || saving || computing} data-testid="save">
       {saving ? strings.actions.saving : strings.actions.saveToUsb}
     </button>
-    <p class="default" data-testid="default-note">{defaultLabel}</p>
   </div>
 {/snippet}
 
@@ -1213,12 +1199,8 @@
       {/if}
 
       <section class="card extra">
-        <button class="secondary" onclick={() => save('all')} disabled={!canSave || saving || computing} data-testid="save-all">
-          {strings.actions.saveAll}
-        </button>
         <p class="muted center" data-testid="build-id">{strings.update.version(__BUILD_ID__)}</p>
         <button class="secondary" onclick={startOver} disabled={doc.items.length === 0} data-testid="start-over">{strings.editor.startOver}</button>
-        <button class="secondary" onclick={onTry} data-testid="try-entry">{strings.actions.tryEntry}</button>
       </section>
     </section>
   </div>
@@ -1243,13 +1225,8 @@
   <ExportSheet
     designName={exported.name}
     fileNames={exported.files.map((f) => f.fileName)}
-    firstTime={exported.firstTime}
     canShare={canShareFiles(exported.files)}
     onShare={share}
-    onTry={() => {
-      exported = null
-      onTry()
-    }}
     onClose={() => (exported = null)}
   />
 {/if}
@@ -1294,7 +1271,6 @@
   .add-bar.bar > .muted, .add-bar.bar > :global([role=alert]) { position: absolute; top: 54px; left: 0; z-index: 20; }
   .save.bar { position: static; padding: 0; background: none; z-index: auto; flex: none; }
   .save.bar .primary { width: auto; min-width: 150px; min-height: 48px; padding: 0 22px; font-size: 1.05em; }
-  .save.bar .default { display: none; }
   .templates { display: grid; gap: 8px; margin-top: 8px; }
   .templates button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 64px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
   .templates button strong { font-size: 1.02em; }
@@ -1353,7 +1329,6 @@
   .extra { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; }
   .secondary { min-height: 56px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 700; }
   .secondary:disabled { opacity: 0.5; }
-  .default { text-align: center; margin: 6px 0 0; font-size: 0.85em; color: var(--muted); }
   .primary { display: block; width: 100%; max-width: 560px; margin: 0 auto; min-height: 60px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--accent-ink); font-size: 1.2em; font-weight: 700; }
   .primary:disabled { background: #c9b8b0; }
 </style>

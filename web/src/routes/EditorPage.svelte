@@ -61,6 +61,7 @@
   } from '../lib/editor'
   import { downloadFiles, nextSequence } from '../lib/export'
   import { flushHook } from '../lib/appUpdater'
+  import { backupFileName, makeBackup, parseBackup } from '../lib/backup'
   import { applyTemplate, TEMPLATES } from '../lib/templates'
   import { createLatestRunner } from '../lib/scheduler'
   import { createTips, type TipId } from '../lib/tips'
@@ -526,6 +527,31 @@
     }
   })
   $effect(() => onWork(doc.items.length > 0))
+
+  // ── 備份與讀取備份 ──
+  let backupFile = $state<HTMLInputElement>()
+  let backupNote = $state<UserMessage | null>(null)
+
+  async function backupNow() {
+    if (doc.items.length === 0) return
+    await downloadFiles([{ fileName: backupFileName(designName()), bytes: makeBackup(currentDraft()) }])
+    backupNote = { code: 'backup_done', text: strings.editor.backupDone, hint: null }
+  }
+
+  async function onBackupFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    const r = parseBackup(new Uint8Array(await file.arrayBuffer()))
+    if (!r.ok) {
+      backupNote = r.message
+      return
+    }
+    resumed = false
+    const ok = await applySaved(r.draft.params, r.draft.images)
+    backupNote = ok ? { code: 'restore_done', text: strings.editor.restoreDone, hint: null } : imageProblem
+  }
 
   function startOver() {
     resumed = false
@@ -1200,6 +1226,11 @@
 
       <section class="card extra">
         <p class="muted center" data-testid="build-id">{strings.update.version(__BUILD_ID__)}</p>
+        <button class="secondary" onclick={backupNow} disabled={doc.items.length === 0} data-testid="backup">{strings.editor.backup}</button>
+        <button class="secondary" onclick={() => backupFile?.click()} data-testid="restore-backup">{strings.editor.restoreBackup}</button>
+        <input type="file" hidden accept=".json,application/json" bind:this={backupFile} onchange={onBackupFile} data-testid="backup-file" />
+        <p class="muted center">{strings.editor.backupHint}</p>
+        {#if backupNote}<Notice message={backupNote} tone={backupNote.code === 'bad_backup' ? 'warn' : 'info'} />{/if}
         <button class="secondary" onclick={startOver} disabled={doc.items.length === 0} data-testid="start-over">{strings.editor.startOver}</button>
       </section>
     </section>

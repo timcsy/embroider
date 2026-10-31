@@ -1229,3 +1229,45 @@ test.describe('流暢度（畫面更新的速度）', () => {
     expect(m.worst).toBeLessThan(300)
   })
 })
+
+// ── 備份 ──
+test('備份設計存成檔案，全部清掉後讀回來，內容一樣', async ({ page }) => {
+  await open(page)
+  const t = await addText(page)
+  await t.fill('王小明')
+  await shape(page, 'heart')
+  await expect(itemCount(page)).toHaveCount(2)
+  const dl = page.waitForEvent('download')
+  await page.getByTestId('backup').click()
+  const d = await dl
+  expect(d.suggestedFilename()).toMatch(/^刺繡備份-王小明-\d{4}-\d{2}-\d{2}\.json$/)
+  const path = (await d.path())!
+
+  await page.getByTestId('start-over').click()
+  await expect(itemCount(page)).toHaveCount(0)
+  await page.getByTestId('backup-file').setInputFiles(path)
+  await expect(itemCount(page)).toHaveCount(2, { timeout: 30_000 })
+  await expect(page.getByText('已經讀回備份')).toBeVisible()
+  await expect(page.getByTestId('save')).toBeEnabled({ timeout: 30_000 })
+})
+
+test('讀到不是備份的檔案：白話說明，原本的設計不動', async ({ page }) => {
+  await open(page)
+  await shape(page, 'star')
+  await page.getByTestId('backup-file').setInputFiles({ name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('hello') })
+  await expect(page.getByRole('alert')).toContainText('不是刺繡小幫手的備份')
+  await expect(itemCount(page)).toHaveCount(1)
+})
+
+test('圖片設計備份後讀回，圖片還在', async ({ page }) => {
+  await open(page)
+  await page.getByTestId('file-input').setInputFiles('tests/e2e/fixtures/logo.png')
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+  const dl = page.waitForEvent('download')
+  await page.getByTestId('backup').click()
+  const path = (await (await dl).path())!
+  await page.getByTestId('start-over').click()
+  await page.getByTestId('backup-file').setInputFiles(path)
+  await expect(page.getByTestId('size')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByTestId('save')).toBeEnabled()
+})

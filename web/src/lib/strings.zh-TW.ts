@@ -89,6 +89,11 @@ export const strings = {
     kinds: { text: '文字', image: '圖片', shape: '圖案', draw: '手繪' },
     addDraw: '畫畫',
     resumed: '已經接著上次做到的地方。',
+    backup: '備份這個設計',
+    restoreBackup: '讀取備份',
+    backupHint: '備份會存成一個檔案，可以放在雲端或傳給自己，換手機也能讀回來。',
+    backupDone: '備份好了，檔案在手機的「下載」資料夾。',
+    restoreDone: '已經讀回備份。',
     cannotSave: '現在不能存，原因在下面',
     tip: {
       add: '小提示：先按「加文字」，打上你的名字。',

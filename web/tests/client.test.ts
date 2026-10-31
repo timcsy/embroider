@@ -37,7 +37,7 @@ describe('核心用戶端（直接呼叫版）', () => {
     const preview = await client.buildTextPreview(req)
     expect(preview.blocked).toBeNull()
     const out = await client.encodeAll(preview.plan, hoops[1], [], '王小明', 1)
-    expect(out.files!.map((f) => f.fileName)).toEqual(['EMB0001.DST', 'EMB0001.EXP'])
+    expect(out.files!.map((f) => f.fileName)).toEqual(['EMB0001.DST'])
   })
 
   it('沒下載的字型：預覽會說找不到字型（不會當機）', async () => {

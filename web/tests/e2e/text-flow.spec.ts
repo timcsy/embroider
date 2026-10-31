@@ -33,9 +33,9 @@ test('輸入文字 → 預覽 → 選框 → 存出檔案', async ({ page }) => 
   await page.getByRole('radio', { name: /中框/ }).click()
   await page.getByTestId('save').click()
   await expect(page.getByTestId('export-sheet')).toBeVisible({ timeout: 30_000 })
-  await expect.poll(() => downloads.length, { timeout: 15_000 }).toBe(2)
+  await expect.poll(() => downloads.length, { timeout: 15_000 }).toBe(1)
 
-  expect(downloads.map((d) => d.name).sort()).toEqual(['EMB0001.DST', 'EMB0001.EXP'])
+  expect(downloads.map((d) => d.name).sort()).toEqual(['EMB0001.DST'])
   for (const d of downloads) {
     expect(readFileSync(d.path).length).toBeGreaterThan(512)
   }

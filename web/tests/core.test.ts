@@ -17,7 +17,7 @@ describe('核心載入層', () => {
 
   it('列出輸出格式，名稱是給人看的', () => {
     const formats = listFormats()
-    expect(formats.map((f) => f.id)).toEqual(['dst', 'exp'])
+    expect(formats.map((f) => f.id)).toEqual(['dst'])
     expect(formats[0].label).not.toMatch(/DST/)
   })
 
@@ -92,7 +92,7 @@ describe('文字預覽與輸出', () => {
     const r = buildTextPreview(q)
     const out = encodeAll(r.plan, q.hoop, [], 'Amy', 1)
     expect(out.error).toBeNull()
-    expect(out.files!.map((f) => f.fileName)).toEqual(['AMY0001.DST', 'AMY0001.EXP'])
+    expect(out.files!.map((f) => f.fileName)).toEqual(['AMY0001.DST'])
     for (const f of out.files!) {
       expect(f.bytes).toBeInstanceOf(Uint8Array)
       expect(f.bytes.length).toBeGreaterThan(100)

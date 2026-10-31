@@ -39,12 +39,11 @@ fn sample_plan() -> StitchPlan {
 }
 
 #[test]
-fn 預設註冊_dst_與_exp() {
+fn 預設只註冊_dst() {
     let r = Registry::default();
     let ids: Vec<_> = r.list().iter().map(|f| f.id()).collect();
-    assert_eq!(ids, vec!["dst", "exp"]);
+    assert_eq!(ids, vec!["dst"]);
     assert_eq!(r.get("dst").unwrap().extension(), "DST");
-    assert_eq!(r.get("exp").unwrap().extension(), "EXP");
     assert!(r.get("nope").is_none());
 }
 
@@ -69,7 +68,7 @@ fn 新增格式不影響既有格式的輸出() {
 
     let mut r = Registry::default();
     r.register(Box::new(Fake));
-    assert_eq!(r.list().len(), 3);
+    assert_eq!(r.list().len(), 2);
     assert_eq!(
         r.get("fake").unwrap().encode(&plan, "T").unwrap(),
         vec![1, 2, 3]

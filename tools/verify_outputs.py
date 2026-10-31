@@ -3,7 +3,7 @@
 用法：
     uv run --no-project --with pyembroidery python -I tools/verify_outputs.py <資料夾>
 
-資料夾內若有 `<名稱>.plan.json`（由 stitch-cli 寫出），會檢查同名的每個 .DST／.EXP：
+資料夾內若有 `<名稱>.plan.json`（由 stitch-cli 寫出），會檢查同名的每個 .DST：
 計畫中的每個「一般針／跳針」終點，必須依序出現在讀回的針跡中。
 只證明「檔案格式正確、內容與核心一致」，不證明繡機能讀（見 contracts/output-files.md）。
 """
@@ -69,7 +69,7 @@ def main():
     folder = sys.argv[1]
     results, errors = [], []
     for name in sorted(os.listdir(folder)):
-        if not name.lower().endswith((".dst", ".exp")):
+        if not name.lower().endswith((".dst",)):
             continue
         path = os.path.join(folder, name)
         pattern = read_pattern(path)

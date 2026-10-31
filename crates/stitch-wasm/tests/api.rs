@@ -13,7 +13,7 @@ fn 列出內建三個框() {
 fn 列出已註冊的輸出格式() {
     let formats = api::list_formats();
     let ids: Vec<_> = formats.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, vec!["dst", "exp"]);
+    assert_eq!(ids, vec!["dst"]);
     assert_eq!(formats[0].extension, "DST");
     assert!(!formats[0].label.is_empty());
     assert!(!formats[0].description.is_empty());

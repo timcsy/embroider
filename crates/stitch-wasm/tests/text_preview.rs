@@ -49,7 +49,7 @@ fn 全部格式一起輸出時檔名共用主檔名() {
     let r = api::build_text_preview(&fonts(), &request("Amy 2026"));
     let files = api::encode_all(&r.plan, &hoop("b70-medium"), &[], "Amy 2026", 1).unwrap();
     let names: Vec<_> = files.iter().map(|f| f.file_name.as_str()).collect();
-    assert_eq!(names, vec!["AMY20001.DST", "AMY20001.EXP"]);
+    assert_eq!(names, vec!["AMY20001.DST"]);
     assert!(files.iter().all(|f| !f.bytes.is_empty()));
 }
 
@@ -57,9 +57,9 @@ fn 全部格式一起輸出時檔名共用主檔名() {
 fn 指定格式時只輸出該格式() {
     let r = api::build_text_preview(&fonts(), &request("Amy"));
     let files =
-        api::encode_all(&r.plan, &hoop("b70-medium"), &["exp".to_string()], "Amy", 3).unwrap();
+        api::encode_all(&r.plan, &hoop("b70-medium"), &["dst".to_string()], "Amy", 3).unwrap();
     assert_eq!(files.len(), 1);
-    assert_eq!(files[0].file_name, "AMY0003.EXP");
+    assert_eq!(files[0].file_name, "AMY0003.DST");
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn 各格式讀回後範圍與換色數一致() {
             })
     };
     let original = bounds(&r.plan);
-    for (f, id) in files.iter().zip(["dst", "exp"]) {
+    for (f, id) in files.iter().zip(["dst"]) {
         let back = registry.get(id).unwrap().decode(&f.bytes).unwrap();
         assert_eq!(bounds(&back), original, "{id}");
         assert_eq!(

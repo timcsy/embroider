@@ -44,9 +44,9 @@ test('選一張三色圖：預覽出現三種顏色，可以調整，可以存�
   await expect(page.getByTestId('save')).toBeEnabled({ timeout: 60_000 })
 
   await page.getByTestId('save').click()
-  await expect.poll(() => downloads.length, { timeout: 30_000 }).toBe(2)
+  await expect.poll(() => downloads.length, { timeout: 30_000 }).toBe(1)
   // 檔名取自圖片檔名（logo → LOGO0001）
-  expect(downloads.map((d) => d.name).sort()).toEqual(['LOGO0001.DST', 'LOGO0001.EXP'])
+  expect(downloads.map((d) => d.name).sort()).toEqual(['LOGO0001.DST'])
   for (const d of downloads) expect(readFileSync(d.path).length).toBeGreaterThan(512)
 })
 

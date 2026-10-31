@@ -32,7 +32,7 @@ fn 文字樣本產生所有格式與計畫檔() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    for name in ["AMY20001.DST", "AMY20001.EXP", "AMY20001.plan.json"] {
+    for name in ["AMY20001.DST", "AMY20001.plan.json"] {
         assert!(dir.join(name).exists(), "缺少 {name}");
     }
     assert!(std::fs::metadata(dir.join("AMY20001.DST")).unwrap().len() > 2000);

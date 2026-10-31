@@ -61,7 +61,6 @@ impl Default for Registry {
     fn default() -> Self {
         let mut r = Registry::empty();
         r.register(Box::new(crate::dst::Dst));
-        r.register(Box::new(crate::exp::Exp));
         r
     }
 }

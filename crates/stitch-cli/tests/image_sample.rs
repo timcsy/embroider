@@ -32,7 +32,7 @@ fn 圖片樣本產生所有格式與計畫檔() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    for name in ["LOGO0001.DST", "LOGO0001.EXP", "LOGO0001.plan.json"] {
+    for name in ["LOGO0001.DST", "LOGO0001.plan.json"] {
         assert!(dir.join(name).exists(), "缺少 {name}");
     }
     let plan: serde_json::Value =
